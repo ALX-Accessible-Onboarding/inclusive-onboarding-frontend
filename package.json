@@ -1,0 +1,13 @@
+{
+  "name": "inclusive-onboarding-frontend",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/inclusive-kit.js src/ik-base.css --bundle --outdir=dist --target=es2019 --format=iife --global-name=InclusiveKit --minify",
+    "dev": "esbuild src/inclusive-kit.js src/ik-base.css --bundle --outdir=dist --target=es2019 --format=iife --global-name=InclusiveKit --watch",
+    "serve": "npx serve ."
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
