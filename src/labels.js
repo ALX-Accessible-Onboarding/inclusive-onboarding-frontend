@@ -21,11 +21,53 @@ export const LABELS = {
   }
 };
 
+export const UI_STRINGS = {
+  onboarding: { en: 'Sign Up', am: 'ይመዝገቡ' },
+  profile: { en: 'My Profile', am: 'መገለጫዬ' },
+  career: { en: 'Career Gateway', am: 'የሥራ እድሎች' },
+  employer: { en: 'Post a Job', am: 'ሥራ ይለጥፉ' },
+  save: { en: 'Save', am: 'አስቀምጥ' },
+  saving: { en: 'Saving...', am: 'በማስቀመጥ ላይ...' },
+  cancel: { en: 'Cancel', am: 'ሰርዝ' },
+  edit: { en: 'Edit', am: 'አስተካክል' },
+  back: { en: 'Back', am: 'ተመለስ' },
+  next: { en: 'Next', am: 'ቀጣይ' },
+  submit: { en: 'Submit', am: 'አስገባ' },
+  submitting: { en: 'Submitting...', am: 'በማስገባት ላይ...' },
+  close: { en: 'Close', am: 'ዝጋ' },
+  apply: { en: 'Apply Now', am: 'አሁን ያመልክቱ' },
+  readAloud: { en: 'Read to me', am: 'ጮክ ብሎ አንብብልኝ' },
+  stopReading: { en: 'Stop reading', am: 'ማንበብ አቁም' },
+  micStart: { en: 'Speak answer', am: 'በድምፅ ይመልሱ' },
+  micListening: { en: 'Listening... speak clearly', am: 'እያዳመጥኩ ነው... በግልጽ ይናገሩ' },
+  micConfirm: { en: 'Is this right? Confirm or edit.', am: 'ይህ ትክክል ነው? ያረጋግጡ ወይም ያስተካክሉ።' },
+  confirm: { en: 'Confirm', am: 'አረጋግጥ' },
+  privateBadge: { en: 'Private', am: 'የግል' },
+  privateNotice: { en: 'Stored privately. No medical proof needed.', am: 'በግል የተጠበቀ። የህክምና ማረጋገጫ አያስፈልግም።' },
+  addIdLater: { en: 'Add my ID later', am: 'መታወቂያዬን ቆይቼ አስገባለሁ' },
+  idPendingReview: { en: 'Partner referral pending review', am: 'የአጋር ድርጅት ማረጋገጫ በመጠባበቅ ላይ' },
+  filterBySupport: { en: 'Support I need (filtered on your device)', am: 'የምፈልገው ድጋፍ (በመሳሪያዎ ላይ የተጣራ)' },
+  allJobs: { en: 'All Jobs', am: 'ሁሉም ስራዎች' },
+  plainLanguageSummary: { en: 'Plain-language summary', am: 'ቀላል ማጠቃለያ' },
+  standardView: { en: 'Original description', am: 'መደበኛ መግለጫ' },
+  noJobsFound: { en: 'No jobs match your selected support criteria.', am: 'ከተመረጠው ድጋፍ ጋር የሚዛመድ ስራ አልተገኘም።' },
+  applicationSubmitted: { en: 'Application submitted successfully!', am: 'ማመልከቻዎ በተሳካ ሁኔታ ገብቷል!' },
+  employerSuccess: { en: 'Job posted successfully!', am: 'ስራው በተሳካ ሁኔታ ተለጠፈ!' }
+};
+
 // label('accommodation', 'flexible_hours', 'am') -> Amharic text, falls back to English
 export function label(group, value, lang) {
   const entry = LABELS[group] && LABELS[group][value];
   if (!entry) return value;
   return entry[lang] || entry.en;
+}
+
+export function t(key, lang) {
+  const code = lang || 'en';
+  if (UI_STRINGS[key]) {
+    return UI_STRINGS[key][code] || UI_STRINGS[key].en;
+  }
+  return key;
 }
 
 // Dev check: returns the list of vocabulary values that lack a label (should be empty)

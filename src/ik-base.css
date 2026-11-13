@@ -1,4 +1,7 @@
-/* All rules scoped to #inclusive-kit or the .ik- prefix */
-#inclusive-kit {
-  font-size: 1.125rem;
+@import './styles/ik-components.css';
+
+/* Accessible base tokens and high-contrast settings */
+#inclusive-kit,
+#inclusive-kit-mount {
+  min-height: 200px;
 }

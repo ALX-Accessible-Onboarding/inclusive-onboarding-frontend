@@ -3,15 +3,86 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Inclusive Kit dev harness</title>
+  <title>Savanna Inclusive Access Kit - Dev Harness</title>
   <link rel="stylesheet" href="./dist/ik-base.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f3f4f6;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .demo-page-container {
+      max-width: 1100px;
+      margin: 2rem auto;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+    }
+    .demo-banner {
+      background-color: #1e3a8a;
+      color: #ffffff;
+      padding: 1rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .demo-banner h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .demo-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .demo-actions button {
+      padding: 0.5rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid #93c5fd;
+      background-color: #2563eb;
+      color: #ffffff;
+      cursor: pointer;
+    }
+    .demo-actions button:hover {
+      background-color: #1d4ed8;
+    }
+  </style>
 </head>
 <body>
-  <main id="inclusive-kit"></main>
+  <div class="demo-page-container">
+    <div class="demo-banner">
+      <h1>Savanna Inclusive Access Kit — Dev 2 Harness</h1>
+      <div class="demo-actions">
+        <button type="button" id="demo-open-modal-btn">🚀 Open Modal Dialog</button>
+      </div>
+    </div>
+    <div id="inclusive-kit"></div>
+  </div>
+
   <script src="./dist/inclusive-kit.js"></script>
   <script>
-  document.getElementById('inclusive-kit').textContent =
-    'Kit version: ' + InclusiveKit.version;
-</script>
+    // Mount kit in page
+    const instance = InclusiveKit.mount({
+      element: '#inclusive-kit',
+      initialView: 'career',
+      language: 'en',
+      learnerId: 'lrn_demo'
+    });
+
+    document.getElementById('demo-open-modal-btn').addEventListener('click', function () {
+      InclusiveKit.openModal({
+        initialView: 'career',
+        language: 'en',
+        learnerId: 'lrn_demo'
+      });
+    });
+  </script>
 </body>
 </html>
