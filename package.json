@@ -5,6 +5,7 @@
   "scripts": {
     "build": "esbuild src/inclusive-kit.js src/ik-base.css --bundle --outdir=dist --target=es2019 --format=iife --global-name=InclusiveKit --minify",
     "dev": "esbuild src/inclusive-kit.js src/ik-base.css --bundle --outdir=dist --target=es2019 --format=iife --global-name=InclusiveKit --watch",
+    "check": "esbuild src/dev-check.js --bundle --outdir=dist --target=es2019 --format=iife",
     "serve": "npx serve ."
   },
   "devDependencies": {
