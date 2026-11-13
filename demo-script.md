@@ -105,3 +105,4 @@ The three pages are located in `Savanna-static-pages/pages/`:
 - [x] Plain-language error handling.
 - [x] Amharic & English bilingual support for all labels, buttons, and prompts.
 - [x] Complete isolation of sensitive disability/support data from public employer views.
+

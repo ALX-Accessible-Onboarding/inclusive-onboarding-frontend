@@ -60,3 +60,4 @@ export class LowLiteracyManager {
     this.listeners.forEach(fn => fn(this));
   }
 }
+

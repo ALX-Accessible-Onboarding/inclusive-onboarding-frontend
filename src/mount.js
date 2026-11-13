@@ -300,3 +300,4 @@ export function closeModal() {
     modalMount.style.display = 'none';
   }
 }
+

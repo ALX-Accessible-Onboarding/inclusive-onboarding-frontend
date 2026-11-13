@@ -48,3 +48,4 @@ export function filterJobsBySupport(jobs, selectedNeeds) {
     return job.accommodations.some(acc => targetAccommodations.has(acc));
   });
 }
+

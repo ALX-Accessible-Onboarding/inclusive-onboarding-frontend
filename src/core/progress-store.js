@@ -47,3 +47,4 @@ export class ProgressStore {
     }, 1000);
   }
 }
+

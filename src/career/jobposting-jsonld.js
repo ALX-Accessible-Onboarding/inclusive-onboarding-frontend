@@ -44,3 +44,4 @@ export function injectJobPostingJsonLd(container, job, lang = 'en') {
   container.appendChild(script);
   return script;
 }
+

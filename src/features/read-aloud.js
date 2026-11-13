@@ -90,3 +90,4 @@ export function speak(text, options) {
     if (opts.onEnd) opts.onEnd();
   }
 }
+
