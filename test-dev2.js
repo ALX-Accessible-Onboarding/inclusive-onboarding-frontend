@@ -5,7 +5,7 @@ import { filterJobsBySupport } from './src/career/job-filter.js';
 import { createJobPostingJsonLd } from './src/career/jobposting-jsonld.js';
 import { detectLanguage } from './src/features/read-aloud.js';
 import { getLocalizedJob, translateToAmharic } from './src/labels.js';
-import { validateContact, validateName } from './src/core/validation.js';
+import { validateContact, validateName, validateIdNumber } from './src/core/validation.js';
 
 async function runTests() {
   api.configure({ mode: 'mock' });
@@ -120,6 +120,18 @@ async function runTests() {
   if (validateName('   ') === null) throw new Error('Whitespace name passed validation');
   if (validateContact('auto', '') === null) throw new Error('Empty contact passed validation');
   console.log('10c. Required answers validation passed: empty and whitespace inputs rejected.');
+
+  // 10d. ID Document format validation per route
+  if (validateIdNumber('kebele', '') !== null) throw new Error('Empty ID should be allowed (optional)');
+  if (validateIdNumber('kebele', '12345/AA') !== null) throw new Error('12345/AA should be valid Kebele ID');
+  if (validateIdNumber('kebele', 'KEB-9988') !== null) throw new Error('KEB-9988 should be valid Kebele ID');
+  if (validateIdNumber('kebele', '12345') === null) throw new Error('12345 without region should be rejected');
+  if (validateIdNumber('kebele', 'bad@@id') === null) throw new Error('Invalid Kebele format should be rejected');
+  if (validateIdNumber('passport', 'EP1234567') !== null) throw new Error('EP1234567 should be valid passport');
+  if (validateIdNumber('passport', '123456') === null) throw new Error('Passport without letters should be rejected');
+  if (validateIdNumber('refugee', 'ETH-12345') !== null) throw new Error('ETH-12345 should be valid refugee ID');
+  if (validateIdNumber('refugee', 'bad') === null) throw new Error('Short refugee ID should be rejected');
+  console.log('10d. ID format validation passed: enforced required format per route and rejected invalid formats.');
 
   console.log('\n>>> ALL DEV 2 TESTS PASSED! <<<');
 }

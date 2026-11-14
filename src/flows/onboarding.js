@@ -1,6 +1,6 @@
 import { StepEngine } from '../core/step-engine.js';
 import { createLearner, saveSupport, createReferral } from '../api-client.js';
-import { validateName, validateContact } from '../core/validation.js';
+import { validateName, validateContact, validateIdNumber } from '../core/validation.js';
 import { SUPPORT_NEEDS, ID_ROUTES } from '../vocabulary.js';
 import { label, t } from '../labels.js';
 import { saveLearnerId } from '../core/learner-session.js';
@@ -112,12 +112,17 @@ export function getOnboardingScreens(lang = 'en') {
       title: isAm ? 'የመታወቂያ ሰነድ ቁጥርዎን ያስገቡ' : 'Enter your ID document number',
       label: isAm ? 'የሰነድ ቁጥር (አሁን ማስገባት አማራጭ ነው)፡' : 'Document number (optional now):',
       helpText: isAm ? 'ለምሳሌ፡ 12345/AA። አሁን ዘለው ቆይተው ማስገባት ይችላሉ።' : 'For example: 12345/AA. You can also skip this and add it later.',
+      placeholder: isAm ? 'ምሳሌ፡ 12345/AA' : 'e.g. 12345/AA',
       inputType: 'text',
       voiceEnabled: true,
       condition: (answers) => answers.idRoute && answers.idRoute !== 'referral',
+      validation: (val, answers) => {
+        const route = (answers && answers.idRoute) || 'kebele';
+        return validateIdNumber(route, val, lang);
+      },
       readAloudText: isAm
-        ? 'የመታወቂያ ሰነድ ቁጥርዎን ያስገቡ። መጻፍ ወይም በድምፅ መናገር ይችላሉ፣ ወይም ዘለው ቆይተው ማስገባት ይችላሉ።'
-        : 'Enter your ID document number. You can type or speak it, or skip and add later.'
+        ? 'የመታወቂያ ሰነድ ቁጥርዎን ያስገቡ። ለምሳሌ 12345/AA። መጻፍ ወይም በድምፅ መናገር ይችላሉ፣ ወይም ዘለው ቆይተው ማስገባት ይችላሉ።'
+        : 'Enter your ID document number. For example: 12345/AA. You can type or speak it, or skip and add later.'
     },
     // B6: Referral (Conditional: only shown if referral chosen)
     {

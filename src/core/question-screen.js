@@ -420,6 +420,21 @@ export class QuestionScreen {
       navBar.appendChild(backBtn);
     }
 
+    // Explicit "Skip and add later" button for optional steps like idNumber
+    if (this.config.allowSkip || this.config.id === 'idNumber') {
+      const skipBtn = document.createElement('button');
+      skipBtn.type = 'button';
+      skipBtn.className = 'ik-btn ik-btn-secondary ik-btn-skip';
+      skipBtn.textContent = lang === 'am' ? 'ዘልለው ይለፉ' : 'Skip and add later';
+      skipBtn.addEventListener('click', () => {
+        stopSpeaking();
+        this.currentValue = '';
+        this.clearError();
+        this.config.onNext('');
+      });
+      navBar.appendChild(skipBtn);
+    }
+
     const nextBtn = document.createElement('button');
     nextBtn.type = 'button';
     nextBtn.className = 'ik-btn ik-btn-primary ik-btn-next';
@@ -490,7 +505,7 @@ export class QuestionScreen {
     }
 
     if (typeof this.config.validation === 'function') {
-      const err = this.config.validation(this.currentValue);
+      const err = this.config.validation(this.currentValue, this.config.answers || {});
       if (err) {
         this.showError(err);
         return false;

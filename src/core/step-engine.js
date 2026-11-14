@@ -92,11 +92,37 @@ export class StepEngine {
       ? this.answers[screenConfig.id]
       : screenConfig.value;
 
+    // Dynamically adjust ID details screen based on selected idRoute
+    let dynamicConfig = screenConfig;
+    if (screenConfig.id === 'idNumber') {
+      const route = this.answers.idRoute || 'kebele';
+      const isAm = this.language === 'am' || String(this.language).startsWith('am');
+      let placeholder = '12345/AA';
+      let example = '12345/AA';
+      if (route === 'passport') {
+        placeholder = 'EP1234567';
+        example = 'EP1234567';
+      } else if (route === 'refugee') {
+        placeholder = 'ETH-12345';
+        example = 'ETH-12345';
+      } else if (route === 'other_document') {
+        placeholder = 'DOC-12345';
+        example = 'DOC-12345';
+      }
+      dynamicConfig = Object.assign({}, screenConfig, {
+        placeholder: placeholder,
+        helpText: isAm
+          ? `ለምሳሌ፡ ${example}። አሁን ዘለው ቆይተው ማስገባት ይችላሉ።`
+          : `For example: ${example}. You can also skip this and add it later.`
+      });
+    }
+
     this.activeScreenComponent = new QuestionScreen({
-      ...screenConfig,
+      ...dynamicConfig,
       language: this.language,
       isSimpleMode: this.isSimpleMode,
       value: currentVal,
+      answers: this.answers,
       isFirst: this.currentStep === 0,
       isLast: this.currentStep === totalSteps - 1,
       onNext: (val) => {
