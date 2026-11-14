@@ -35,7 +35,11 @@ async function request(method, path, body) {
   }
   let data = null;
   try { data = await res.json(); } catch (e) { /* empty body */ }
-  if (!res.ok) throw new ApiError(res.status, data && data.errors);
+  if (!res.ok) {
+    const errors = (data && data.errors) || {};
+    if (data && data.existingId) errors.existingId = data.existingId;
+    throw new ApiError(res.status, errors);
+  }
   return data;
 }
 
@@ -161,21 +165,149 @@ export function createJob(job) {
 /* ---------- learners ---------- */
 export async function createLearner(data) {
   if (isLive()) {
-    const learner = await request('POST', '/learners', data);
-    if (learner && learner.id) {
-      db.learners[learner.id] = Object.assign({}, data, learner);
+    // Normalize phone number to Ethiopian local format (09... or 07...) expected by backend
+    const payload = Object.assign({}, data);
+    if (payload.contact && payload.contact.type === 'phone' && payload.contact.value) {
+      let digits = String(payload.contact.value).replace(/[^0-9]/g, '');
+      if (digits.startsWith('251') && digits.length === 12) {
+        digits = '0' + digits.slice(3);
+      }
+      payload.contact = { type: 'phone', value: digits };
     }
-    return learner;
+
+    try {
+      const learner = await request('POST', '/learners', payload);
+      if (learner && learner.id) {
+        db.learners[learner.id] = Object.assign({}, payload, learner);
+      }
+      return learner;
+    } catch (e) {
+      // If profile already exists (409 Conflict), attach the existing learner ID and rethrow
+      // so the UI can notify the user that they are already registered
+      if (e && e.status === 409) {
+        const rawId = (e.errors && e.errors.existingId) || e.existingId;
+        if (rawId) {
+          const existingId = String(rawId).startsWith('lrn_') ? String(rawId) : 'lrn_' + rawId;
+          e.existingId = existingId;
+          const existingLearner = {
+            id: existingId,
+            name: data.name,
+            contact: payload.contact,
+            idRoute: data.idRoute,
+            idNumber: data.idNumber,
+            mode: data.mode,
+            language: data.language
+          };
+          db.learners[existingId] = existingLearner;
+        }
+      }
+      throw e;
+    }
   }
   return mock(function () {
     const errors = {};
     if (!data.name || !data.name.trim()) errors.name = 'Please tell us what to call you.';
     if (!data.contact || !data.contact.value) errors['contact.value'] = 'Please add your number, like 09 12 34 56 78.';
     if (Object.keys(errors).length) throw new ApiError(400, errors);
+
+    // Check if phone or email is already registered
+    const contactVal = String(data.contact.value).replace(/[^0-9]/g, '');
+    const isEmail = data.contact.type === 'email' || (data.contact.value && data.contact.value.includes('@'));
+    const existing = Object.values(db.learners).find(l => {
+      if (!l.contact || !l.contact.value) return false;
+      if (isEmail && l.contact.type === 'email') {
+        return l.contact.value.toLowerCase().trim() === String(data.contact.value).toLowerCase().trim();
+      }
+      const existingDigits = String(l.contact.value).replace(/[^0-9]/g, '');
+      return contactVal && existingDigits && (contactVal === existingDigits || contactVal.endsWith(existingDigits) || existingDigits.endsWith(contactVal));
+    });
+
+    if (existing) {
+      const err = new ApiError(409, {
+        _: 'This profile already exists.',
+        existingId: existing.id
+      });
+      err.existingId = existing.id;
+      throw err;
+    }
+
     const learner = Object.assign({ idNumber: null, partnerRef: null }, data, { id: nextId('lrn'), createdAt: now() });
     db.learners[learner.id] = learner;
     return learner;
   });
+}
+
+export async function checkLearnerExists(params) {
+  const { name, contact } = params || {};
+  if (!name || !contact || !contact.value) {
+    return { exists: false };
+  }
+
+  let contactVal = String(contact.value || '').trim();
+  const isEmail = contact.type === 'email' || contactVal.includes('@');
+  if (!isEmail) {
+    let digits = contactVal.replace(/[^0-9]/g, '');
+    if (digits.startsWith('251') && digits.length === 12) {
+      digits = '0' + digits.slice(3);
+    }
+    contactVal = digits;
+  }
+
+  const cleanName = String(name).trim().toLowerCase();
+
+  // Check local/mock database first
+  const localMatch = Object.values(db.learners).find(l => {
+    if (!l.contact || !l.contact.value) return false;
+    const lName = (l.name || '').trim().toLowerCase();
+    if (isEmail && l.contact.type === 'email') {
+      return l.contact.value.toLowerCase().trim() === contactVal.toLowerCase();
+    }
+    const lDigits = String(l.contact.value).replace(/[^0-9]/g, '');
+    return lDigits === contactVal && (lName === cleanName || l.id === 'lrn_demo');
+  });
+
+  if (localMatch) {
+    return {
+      exists: true,
+      existingId: localMatch.id,
+      name: localMatch.name
+    };
+  }
+
+  // Live backend check: probe with same name & phone
+  if (isLive()) {
+    try {
+      const res = await fetch(config.baseUrl + '/learners', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + config.token
+        },
+        body: JSON.stringify({
+          name: String(name).trim(),
+          contact: { type: isEmail ? 'email' : 'phone', value: contactVal },
+          idRoute: '__check_existing__'
+        })
+      });
+
+      if (res.status === 409) {
+        const data = await res.json().catch(() => null);
+        const rawId = data && (data.existingId || (data.errors && data.errors.existingId));
+        if (rawId) {
+          const existingId = String(rawId).startsWith('lrn_') ? String(rawId) : 'lrn_' + rawId;
+          return {
+            exists: true,
+            existingId: existingId,
+            name: name
+          };
+        }
+      }
+    } catch (e) {
+      return { exists: false };
+    }
+  }
+
+  return { exists: false };
 }
 
 export async function getLearner(id) {
@@ -211,7 +343,7 @@ export async function getLearner(id) {
     const fallback = db.learners[id] || {
       id: id,
       name: 'Demo Learner',
-      contact: { type: 'phone', value: '251912345678' },
+      contact: { type: 'phone', value: '0912345678' },
       idRoute: 'kebele',
       idNumber: null,
       mode: 'standard',
@@ -244,7 +376,7 @@ export async function patchLearner(id, patch) {
       // Backend does not have PATCH /learners/:id route
     }
   }
-  const current = db.learners[id] || { id: id, name: 'Learner', contact: { type: 'phone', value: '251912345678' } };
+  const current = db.learners[id] || { id: id, name: 'Learner', contact: { type: 'phone', value: '0912345678' } };
   Object.assign(current, patch, res || {});
   db.learners[id] = current;
   try {

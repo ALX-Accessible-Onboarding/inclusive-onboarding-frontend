@@ -363,7 +363,7 @@ export class LearnerProfile {
       title: this.language === 'am' ? 'የመገናኛ አድራሻ' : 'Contact Information',
       label: currentType === 'email'
         ? (this.language === 'am' ? 'የኢሜይል አድራሻዎን ያስገቡ' : 'Please enter your email address')
-        : (this.language === 'am' ? 'ባለ 12 አሃዝ የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ፡ 251912345678)' : 'Please enter your 12-digit phone number (e.g. 251912345678)'),
+        : (this.language === 'am' ? 'ባለ 10 አሃዝ የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ፡ 0912345678)' : 'Please enter your 10-digit phone number starting with 09 or 07 (e.g. 0912345678)'),
       value: currentVal,
       inputType: currentType === 'email' ? 'email' : 'tel',
       voiceEnabled: true,

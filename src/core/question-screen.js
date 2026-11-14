@@ -226,7 +226,7 @@ export class QuestionScreen {
       inputField.placeholder = this.config.placeholder || '';
       if (this.config.helpText) inputField.setAttribute('aria-describedby', helpId);
 
-      // Restrict phone input to 12 digits
+      // Restrict phone input to 10 digits
       const isPhoneField = this.config.inputType === 'tel' || this.config.id === 'contactValue';
       if (isPhoneField) {
         inputField.setAttribute('autocomplete', 'tel');
@@ -234,17 +234,19 @@ export class QuestionScreen {
 
       inputField.addEventListener('input', (e) => {
         let val = e.target.value;
-        // If typing phone digits without '@', limit strictly to 12 digits
+        // If typing phone digits without '@', limit strictly to 10 digits
         if (isPhoneField && !val.includes('@')) {
           const digits = val.replace(/[^0-9]/g, '');
-          if (digits.length > 12) {
-            const hasPlus = val.trim().startsWith('+');
-            val = (hasPlus ? '+' : '') + digits.slice(0, 12);
+          if (digits.length > 10) {
+            val = digits.slice(0, 10);
             inputField.value = val;
           }
         }
         this.currentValue = val;
         this.clearError();
+        if (typeof this.config.onChange === 'function') {
+          this.config.onChange(this.currentValue);
+        }
       });
 
       // Submit step on Enter key if valid
@@ -277,6 +279,9 @@ export class QuestionScreen {
       inputField.addEventListener('input', (e) => {
         this.currentValue = e.target.value;
         this.clearError();
+        if (typeof this.config.onChange === 'function') {
+          this.config.onChange(this.currentValue);
+        }
       });
       inputArea.appendChild(inputField);
 
@@ -309,6 +314,9 @@ export class QuestionScreen {
           this.clearError();
           fieldset.querySelectorAll('.ik-option-card').forEach(c => c.classList.remove('ik-selected'));
           optWrapper.classList.add('ik-selected');
+          if (typeof this.config.onChange === 'function') {
+            this.config.onChange(this.currentValue);
+          }
         });
 
         const optLabel = document.createElement('label');
@@ -369,6 +377,9 @@ export class QuestionScreen {
           }
           this.currentValue = Array.from(selectedSet);
           this.clearError();
+          if (typeof this.config.onChange === 'function') {
+            this.config.onChange(this.currentValue);
+          }
         });
 
         const optLabel = document.createElement('label');

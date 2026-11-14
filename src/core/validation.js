@@ -22,12 +22,12 @@ export function validateContact(type, value, lang = 'en') {
     }
     if (type === 'phone') {
       return isAm
-        ? 'እባክዎ ባለ 12 አሃዝ የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ፡ 251912345678)።'
-        : 'Please add your 12-digit phone number, like 251912345678.';
+        ? 'እባክዎ በ 09 ወይም 07 የሚጀምር ባለ 10 አሃዝ የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ፡ 0912345678)።'
+        : 'Please add your 10-digit phone number starting with 09 or 07 (e.g. 0912345678).';
     }
     return isAm
-      ? 'እባክዎ ባለ 12 አሃዝ የስልክ ቁጥርዎን ወይም የኢሜይል አድራሻዎን ያስገቡ።'
-      : 'Please add your 12-digit phone number or a valid email address.';
+      ? 'እባክዎ በ 09 ወይም 07 የሚጀምር ባለ 10 አሃዝ የስልክ ቁጥርዎን ወይም የኢሜይል አድራሻዎን ያስገቡ።'
+      : 'Please add your 10-digit phone number (starting with 09 or 07) or a valid email address.';
   }
 
   const clean = String(value).trim();
@@ -46,20 +46,20 @@ export function validateContact(type, value, lang = 'en') {
     return null;
   }
 
-  // Phone validation: MUST BE ONLY 12 DIGITS
+  // Phone validation: MUST BE 10 DIGITS STARTING WITH 09 OR 07
   // Check for disallowed letters
   if (/[a-zA-Z]/.test(clean)) {
     return isAm
-      ? 'የስልክ ቁጥር ፊደላትን መያዝ አይችልም። እባክዎ ባለ 12 አሃዝ ቁጥር ብቻ ያስገቡ።'
-      : 'Phone number cannot contain letters. Please enter a 12-digit number.';
+      ? 'የስልክ ቁጥር ፊደላትን መያዝ አይችልም። እባክዎ በ 09 ወይም በ 07 የሚጀምር ባለ 10 አሃዝ ቁጥር ብቻ ያስገቡ።'
+      : 'Phone number cannot contain letters. Please enter a 10-digit number starting with 09 or 07.';
   }
 
   // Count digits
   const digits = clean.replace(/[^0-9]/g, '');
-  if (digits.length !== 12) {
+  if (digits.length !== 10 || (!digits.startsWith('09') && !digits.startsWith('07'))) {
     return isAm
-      ? 'የስልክ ቁጥር በትክክል 12 አሃዞች መሆን አለበት (ለምሳሌ፡ 251912345678)።'
-      : 'Phone number must be exactly 12 digits (e.g. 251912345678).';
+      ? 'የስልክ ቁጥር በትክክል 10 አሃዞች ሆኖ በ 09 ወይም በ 07 መጀመር አለበት (ለምሳሌ፡ 0912345678 ወይም 0712345678)።'
+      : 'Phone number must be exactly 10 digits starting with 09 or 07 (e.g. 0912345678 or 0712345678).';
   }
 
   return null;

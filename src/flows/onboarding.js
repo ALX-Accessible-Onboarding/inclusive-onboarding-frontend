@@ -1,5 +1,5 @@
 import { StepEngine } from '../core/step-engine.js';
-import { createLearner, saveSupport, createReferral } from '../api-client.js';
+import { createLearner, saveSupport, createReferral, checkLearnerExists } from '../api-client.js';
 import { validateName, validateContact, validateIdNumber } from '../core/validation.js';
 import { SUPPORT_NEEDS, ID_ROUTES } from '../vocabulary.js';
 import { label, t } from '../labels.js';
@@ -9,7 +9,7 @@ import { saveLearnerId } from '../core/learner-session.js';
  * Builds the screens B1 to B10 configuration for the onboarding flow
  * localized dynamically for English or Amharic.
  */
-export function getOnboardingScreens(lang = 'en') {
+export function getOnboardingScreens(lang = 'en', onAlreadyRegistered = null) {
   const isAm = lang === 'am' || (typeof lang === 'string' && lang.startsWith('am'));
 
   return [
@@ -51,15 +51,32 @@ export function getOnboardingScreens(lang = 'en') {
       id: 'contactValue',
       required: true,
       title: isAm ? 'እንዴት እናገኝዎት?' : 'How can we reach you?',
-      label: isAm ? 'የስልክ ቁጥር (12 አሃዞች) ወይም የኢሜይል አድራሻ (ግዴታ)፡' : 'Phone number (12 digits) or Email address (required):',
-      helpText: isAm ? 'እባክዎ ባለ 12 አሃዝ ስልክ ቁጥር (ለምሳሌ፡ 251912345678) ወይም ተገቢ የሆነ ኢሜይል ያስገቡ።' : 'Please enter a 12-digit phone number (e.g. 251912345678) or a valid email address.',
-      placeholder: isAm ? '251912345678 ወይም name@example.com' : '251912345678 or name@example.com',
+      label: isAm ? 'የስልክ ቁጥር (10 አሃዞች - 09 ወይም 07) ወይም የኢሜይል አድራሻ (ግዴታ)፡' : 'Phone number (10 digits starting with 09 or 07) or Email address (required):',
+      helpText: isAm ? 'እባክዎ በ 09 ወይም 07 የሚጀምር ባለ 10 አሃዝ ስልክ ቁጥር (ለምሳሌ፡ 0912345678) ወይም ተገቢ የሆነ ኢሜይል ያስገቡ።' : 'Please enter a 10-digit phone number starting with 09 or 07 (e.g. 0912345678) or a valid email address.',
+      placeholder: isAm ? '0912345678 ወይም name@example.com' : '0912345678 or name@example.com',
       inputType: 'tel',
       voiceEnabled: true,
       validation: (val) => validateContact('auto', val, lang),
       readAloudText: isAm
-        ? 'እንዴት እናገኝዎት? እባክዎ የስልክ ቁጥርዎን ወይም የኢሜይል አድራሻዎን ያስገቡ።'
-        : 'How can we reach you? Please enter your phone number or email address.'
+        ? 'እንዴት እናገኝዎት? እባክዎ በ 09 ወይም 07 የሚጀምር ባለ 10 አሃዝ የስልክ ቁጥርዎን ወይም የኢሜይል አድራሻዎን ያስገቡ።'
+        : 'How can we reach you? Please enter your 10-digit phone number starting with 09 or 07, or your email address.',
+      onValidateAsync: async (val, answers) => {
+        if (typeof onAlreadyRegistered !== 'function') return true;
+        const isEmail = val && val.includes('@');
+        let contactDigits = String(val || '').trim();
+        if (!isEmail) {
+          contactDigits = contactDigits.replace(/[^0-9]/g, '');
+        }
+        const check = await checkLearnerExists({
+          name: answers.name || '',
+          contact: { type: isEmail ? 'email' : 'phone', value: contactDigits }
+        });
+        if (check && check.exists && check.existingId) {
+          onAlreadyRegistered(check.existingId, answers.name || check.name);
+          return false;
+        }
+        return true;
+      }
     },
     // B4: ID Route
     {
@@ -210,14 +227,94 @@ export function startOnboardingFlow(options) {
   let currentLang = initialLanguage === 'am' || String(initialLanguage).startsWith('am') ? 'am' : 'en';
   let isSimpleMode = false;
 
-  let screens = getOnboardingScreens(currentLang);
+  // Restore draft answers if available (for refresh or connection drop)
+  const DRAFT_KEY = 'ik_onboarding_draft';
+  let draftAnswers = {};
+  let draftStep = 0;
+  let hasRestoredDraft = false;
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.answers && Object.keys(parsed.answers).length > 0) {
+        draftAnswers = parsed.answers;
+        draftStep = typeof parsed.stepIndex === 'number' ? parsed.stepIndex : 0;
+        hasRestoredDraft = true;
+      }
+    }
+  } catch (e) {}
+
+  function renderAlreadyRegistered(existingId, name) {
+    const rawId = existingId || getLearnerId() || 'lrn_demo';
+    const finalId = String(rawId).startsWith('lrn_') ? String(rawId) : 'lrn_' + rawId;
+    saveLearnerId(finalId);
+    try {
+      localStorage.setItem('inclusive_learner_id', finalId);
+      localStorage.setItem('ik_current_learner_id', finalId);
+      localStorage.removeItem(DRAFT_KEY);
+    } catch (e) {}
+
+    const isAm = currentLang === 'am';
+    const learnerObj = { id: finalId, name: name || 'Learner' };
+
+    container.innerHTML = `
+      <div class="ik-card ik-already-registered-card" role="region" aria-live="polite">
+        <div class="ik-already-badge">
+          <span class="ik-badge ik-badge-info">ℹ️ ${isAm ? 'የተመዘገበ መለያ' : 'Existing Profile'}</span>
+        </div>
+        <h2 class="ik-already-title">${isAm ? 'አስቀድመው ተመዝግበዋል!' : 'You are already registered!'}</h2>
+        <p class="ik-already-message">
+          ${isAm
+            ? 'በዚህ ስም እና ስልክ ቁጥር የተመዘገበ መለያ አስቀድሞ አለ። ቀሪውን መረጃ እንደገና መሙላት አያስፈልግዎትም፤ በቀጥታ ወደ መገለጫዎ ወይም ወደ ክፍት የሥራ ቦታዎች መሄድ ይችላሉ።'
+            : 'An account with this name and phone number is already registered. You do not need to fill the rest of the form; you can proceed directly to your profile or explore accessible jobs.'}
+        </p>
+        <div class="ik-already-actions">
+          <button type="button" class="ik-btn ik-btn-primary ik-btn-go-profile">
+            👤 ${isAm ? 'መገለጫዬን ተመልከት' : 'View My Profile'}
+          </button>
+          <button type="button" class="ik-btn ik-btn-secondary ik-btn-go-jobs">
+            💼 ${isAm ? 'ተደራሽ ስራዎችን ፈልግ' : 'Find Accessible Jobs'}
+          </button>
+          <button type="button" class="ik-btn ik-btn-outline ik-btn-start-over">
+            ${isAm ? 'በሌላ መረጃ ሞክር' : 'Try with different details'}
+          </button>
+        </div>
+      </div>
+    `;
+
+    container.querySelector('.ik-btn-go-profile').addEventListener('click', () => {
+      if (onComplete) onComplete(learnerObj);
+    });
+    container.querySelector('.ik-btn-go-jobs').addEventListener('click', () => {
+      if (onNavigateToJobs) onNavigateToJobs(learnerObj);
+    });
+    container.querySelector('.ik-btn-start-over').addEventListener('click', () => {
+      try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+      startOnboardingFlow(options);
+    });
+  }
+
+  let screens = getOnboardingScreens(currentLang, renderAlreadyRegistered);
 
   const engine = new StepEngine({
     container: container,
     screens: screens,
     language: currentLang,
     isSimpleMode: isSimpleMode,
-    sessionId: 'ik_onboarding_' + Date.now(),
+    initialAnswers: draftAnswers,
+    initialStep: draftStep,
+    draftRestored: hasRestoredDraft,
+    sessionId: 'ik_onboarding_session',
+    onSaveDraft: (draft) => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch (e) {}
+    },
+    onClearDraft: () => {
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch (e) {}
+    },
     onComplete: async (answers) => {
       const selectedSetting = answers.welcome_settings || (currentLang === 'am' ? 'am_standard' : 'en_standard');
       const lang = selectedSetting.startsWith('am') ? 'am' : 'en';
@@ -251,6 +348,9 @@ export function startOnboardingFlow(options) {
           language: lang,
           partnerRef: answers.partnerReferral || null
         });
+
+        // Registration successful - clean up the draft
+        try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
 
         // Save real lrn_... ID to browser's local storage (requested by backend team)
         saveLearnerId(learner.id);
@@ -308,9 +408,30 @@ export function startOnboardingFlow(options) {
         });
 
       } catch (err) {
+        // Check if user is already registered (409 Conflict)
+        const isDuplicate = err.status === 409 ||
+          (err.errors && err.errors._ && /already exists|already registered|ተመዝግበዋል/i.test(err.errors._));
+
+        if (isDuplicate) {
+          const rawExistingId = err.existingId || (err.errors && err.errors.existingId);
+          renderAlreadyRegistered(rawExistingId, answers.name);
+          return;
+        }
+
+        let errorMsg = err.message || 'Something went wrong';
+        if (err.errors) {
+          if (typeof err.errors === 'string') {
+            errorMsg = err.errors;
+          } else if (err.errors._) {
+            errorMsg = err.errors._;
+          } else if (typeof err.errors === 'object') {
+            const firstErr = Object.values(err.errors)[0];
+            if (firstErr) errorMsg = firstErr;
+          }
+        }
         container.innerHTML = `
           <div class="ik-error-card" role="alert">
-            <p class="ik-error-msg"><strong>${isAm ? 'ስህተት ተከስቷል፡' : 'Error creating profile:'}</strong> ${err.errors && err.errors._ ? err.errors._ : err.message}</p>
+            <p class="ik-error-msg"><strong>${isAm ? 'ስህተት ተከስቷል፡' : 'Error creating profile:'}</strong> ${errorMsg}</p>
             <button type="button" class="ik-btn ik-btn-secondary ik-retry-onboarding">${isAm ? 'እንደገና ሞክር' : 'Retry'}</button>
           </div>
         `;
@@ -329,7 +450,7 @@ export function startOnboardingFlow(options) {
       const nextLang = selected.startsWith('am') ? 'am' : 'en';
       if (nextLang !== engine.language) {
         engine.language = nextLang;
-        engine.screens = getOnboardingScreens(nextLang);
+        engine.screens = getOnboardingScreens(nextLang, renderAlreadyRegistered);
       }
     }
     originalRender();

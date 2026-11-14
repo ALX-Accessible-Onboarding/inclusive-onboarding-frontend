@@ -17,6 +17,8 @@ export class CareerGateway {
     this.isSimpleMode = options.isSimpleMode || false;
     this.onApplyClick = options.onApplyClick || null;
     this.onPostJobClick = options.onPostJobClick || null;
+    this.pageSize = options.pageSize || 5;
+    this.currentPage = 1;
 
     this.jobs = [];
     this.selectedNeeds = [];
@@ -105,8 +107,8 @@ export class CareerGateway {
         <h2 class="ik-gateway-title">${t('career', this.language)}</h2>
         <p class="ik-gateway-subtitle">
           ${this.language === 'am'
-            ? 'አካታች የስራ እድሎችን ያግኙ። ድጋፍን ለመምረጥ የሚጠቀሙት ማጣሪያ በመሳሪያዎ ላይ ብቻ የሚቀመጥ ሲሆን ሚስጥራዊነቱ የተጠበቀ ነው።'
-            : 'Find jobs with accommodations built-in. Filtering by your needed support stays on your device and is never shared.'}
+        ? 'አካታች የስራ እድሎችን ያግኙ። ድጋፍን ለመምረጥ የሚጠቀሙት ማጣሪያ በመሳሪያዎ ላይ ብቻ የሚቀመጥ ሲሆን ሚስጥራዊነቱ የተጠበቀ ነው።'
+        : 'Find jobs with accommodations built-in. Filtering by your needed support stays on your device and is never shared.'}
         </p>
       </div>
       <div class="ik-gateway-header-actions">
@@ -177,6 +179,7 @@ export class CareerGateway {
         chip.setAttribute('aria-pressed', active ? 'true' : 'false');
         icon.textContent = active ? '✓' : '+';
         clearBtn.hidden = this.selectedNeeds.length === 0;
+        this.currentPage = 1;
         this.updateJobList(root);
       });
 
@@ -192,6 +195,7 @@ export class CareerGateway {
         if (icon) icon.textContent = '+';
       });
       clearBtn.hidden = true;
+      this.currentPage = 1;
       this.updateJobList(root);
     });
     filterChips.appendChild(clearBtn);
@@ -211,6 +215,7 @@ export class CareerGateway {
     searchInput.setAttribute('aria-label', searchInput.placeholder);
     searchInput.addEventListener('input', (e) => {
       this.searchQuery = e.target.value;
+      this.currentPage = 1;
       clearTimeout(this.searchTimer);
       this.searchTimer = setTimeout(() => this.updateJobList(root), 250);
     });
@@ -274,18 +279,27 @@ export class CareerGateway {
 
     const filtered = this.getFilteredJobs();
     const isAm = this.language === 'am' || (typeof this.language === 'string' && this.language.startsWith('am'));
+    const totalJobs = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalJobs / this.pageSize));
+    if (this.currentPage > totalPages) this.currentPage = totalPages;
+    if (this.currentPage < 1) this.currentPage = 1;
+
+    const startIndex = (this.currentPage - 1) * this.pageSize;
+    const endIndex = Math.min(startIndex + this.pageSize, totalJobs);
+    const pageJobs = filtered.slice(startIndex, endIndex);
 
     // Results count bar
     const countBar = document.createElement('div');
     countBar.className = 'ik-results-count-bar';
     countBar.setAttribute('aria-live', 'polite');
-    countBar.innerHTML = `
-      <p class="ik-results-count">
-        <strong>${filtered.length}</strong> ${
-          isAm ? 'የሚስማሙ የስራ እድሎች ተገኝተዋል' : 'accessible positions match your selection'
-        }
-      </p>
-    `;
+    const countInfo = totalJobs > this.pageSize
+      ? (isAm
+        ? `ከ <strong>${totalJobs}</strong> ስራዎች ውስጥ ከ <strong>${startIndex + 1}–${endIndex}</strong> በማሳየት ላይ (ገጽ ${this.currentPage} ከ ${totalPages})`
+        : `Showing <strong>${startIndex + 1}–${endIndex}</strong> of <strong>${totalJobs}</strong> accessible positions (Page ${this.currentPage} of ${totalPages})`)
+      : (isAm
+        ? `<strong>${totalJobs}</strong> የሚስማሙ የስራ እድሎች ተገኝተዋል`
+        : `<strong>${totalJobs}</strong> accessible positions match your selection`);
+    countBar.innerHTML = `<p class="ik-results-count">${countInfo}</p>`;
     container.appendChild(countBar);
 
     if (filtered.length === 0) {
@@ -311,7 +325,7 @@ export class CareerGateway {
     const grid = document.createElement('div');
     grid.className = 'ik-jobs-grid';
 
-    filtered.forEach(job => {
+    pageJobs.forEach(job => {
       // Localize job content according to active language (Amharic or English)
       const localizedJob = getLocalizedJob(job, this.language);
 
@@ -480,6 +494,72 @@ export class CareerGateway {
     });
 
     container.appendChild(grid);
+
+    // Pagination Controls
+    if (totalPages > 1) {
+      const paginationNav = document.createElement('nav');
+      paginationNav.className = 'ik-pagination';
+      paginationNav.setAttribute('aria-label', isAm ? 'የስራ ገጾች ማውጫ' : 'Jobs pagination');
+
+      // Previous page button
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'ik-btn ik-btn-secondary ik-pagination-prev';
+      prevBtn.disabled = this.currentPage === 1;
+      prevBtn.setAttribute('aria-disabled', this.currentPage === 1 ? 'true' : 'false');
+      prevBtn.innerHTML = `← <span>${isAm ? 'ቀዳሚ' : 'Previous'}</span>`;
+      prevBtn.addEventListener('click', () => {
+        if (this.currentPage > 1) {
+          this.currentPage--;
+          this.updateJobList(root);
+          container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+      paginationNav.appendChild(prevBtn);
+
+      // Page numbers
+      const pagesList = document.createElement('div');
+      pagesList.className = 'ik-pagination-pages';
+
+      for (let p = 1; p <= totalPages; p++) {
+        const isCurrent = p === this.currentPage;
+        const pageBtn = document.createElement('button');
+        pageBtn.type = 'button';
+        pageBtn.className = 'ik-btn ik-pagination-number' + (isCurrent ? ' ik-page-active' : '');
+        pageBtn.textContent = String(p);
+        pageBtn.setAttribute('aria-label', isAm ? `ገጽ ${p}` : `Page ${p}`);
+        if (isCurrent) {
+          pageBtn.setAttribute('aria-current', 'page');
+        }
+        pageBtn.addEventListener('click', () => {
+          if (this.currentPage !== p) {
+            this.currentPage = p;
+            this.updateJobList(root);
+            container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
+        pagesList.appendChild(pageBtn);
+      }
+      paginationNav.appendChild(pagesList);
+
+      // Next page button
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'ik-btn ik-btn-secondary ik-pagination-next';
+      nextBtn.disabled = this.currentPage === totalPages;
+      nextBtn.setAttribute('aria-disabled', this.currentPage === totalPages ? 'true' : 'false');
+      nextBtn.innerHTML = `<span>${isAm ? 'ቀጣይ' : 'Next'}</span> →`;
+      nextBtn.addEventListener('click', () => {
+        if (this.currentPage < totalPages) {
+          this.currentPage++;
+          this.updateJobList(root);
+          container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+      paginationNav.appendChild(nextBtn);
+
+      container.appendChild(paginationNav);
+    }
   }
 
   destroy() {

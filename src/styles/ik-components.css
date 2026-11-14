@@ -964,3 +964,138 @@
     outline: 3px solid Highlight !important;
   }
 }
+
+/* Pagination Controls */
+.ik-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding: 1rem 0;
+  flex-wrap: wrap;
+}
+
+.ik-pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ik-pagination-number {
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1f2937;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease-in-out;
+}
+
+.ik-pagination-number:hover:not(.ik-page-active) {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.ik-pagination-number.ik-page-active {
+  background: var(--ik-primary-color, #2563eb);
+  color: #ffffff;
+  border-color: var(--ik-primary-color, #2563eb);
+  cursor: default;
+}
+
+.ik-pagination-prev,
+.ik-pagination-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 38px;
+  padding: 0.4rem 0.9rem;
+  font-weight: 600;
+}
+
+.ik-pagination-prev:disabled,
+.ik-pagination-next:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Already Registered Card */
+.ik-already-registered-card {
+  text-align: center;
+  padding: 2rem 1.5rem;
+  background: #ffffff;
+  border: 2px solid #3b82f6;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  max-width: 580px;
+  margin: 1.5rem auto;
+}
+
+.ik-already-badge {
+  margin-bottom: 0.75rem;
+}
+
+.ik-already-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #1e3a8a;
+  margin: 0 0 0.5rem 0;
+}
+
+.ik-already-message {
+  font-size: 1.05rem;
+  color: #4b5563;
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+.ik-already-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 480px) {
+  .ik-already-actions {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+
+/* Draft Restored Banner */
+.ik-draft-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  gap: 0.75rem;
+}
+
+.ik-draft-banner-btn {
+  background: none;
+  border: none;
+  color: #15803d;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 0;
+}
+
+.ik-draft-banner-btn:hover {
+  color: #14532d;
+}

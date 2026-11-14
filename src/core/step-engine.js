@@ -18,6 +18,9 @@ export class StepEngine {
     this.autoRead = options.autoRead || false;
     this.onComplete = options.onComplete || (() => {});
     this.onCancel = options.onCancel || null;
+    this.onSaveDraft = options.onSaveDraft || null;
+    this.onClearDraft = options.onClearDraft || null;
+    this.draftRestored = Boolean(options.draftRestored);
 
     this.currentStep = this.initialStep;
     this.answers = Object.assign({}, this.initialAnswers);
@@ -33,6 +36,22 @@ export class StepEngine {
     }
 
     this.activeScreenComponent = null;
+  }
+
+  saveDraft() {
+    const draftPayload = {
+      answers: this.answers,
+      stepIndex: this.currentStep,
+      sessionId: this.sessionId,
+      timestamp: Date.now()
+    };
+    if (typeof this.onSaveDraft === 'function') {
+      try { this.onSaveDraft(draftPayload); } catch (e) {}
+    }
+    this.progressStore.save({
+      stepIndex: this.currentStep,
+      answers: this.answers
+    });
   }
 
   getEffectiveScreens() {
@@ -57,6 +76,29 @@ export class StepEngine {
     const screenConfig = effectiveScreens[this.currentStep];
     const totalSteps = effectiveScreens.length;
     const stepNumber = this.currentStep + 1;
+
+    // Draft Restored Banner (shown once if answers were restored from localStorage)
+    if (this.draftRestored) {
+      const isAm = this.language === 'am' || String(this.language).startsWith('am');
+      const draftBanner = document.createElement('div');
+      draftBanner.className = 'ik-draft-banner';
+      draftBanner.setAttribute('role', 'status');
+      draftBanner.setAttribute('aria-live', 'polite');
+      draftBanner.innerHTML = `
+        <span>📝 <strong>${isAm ? 'የተቀመጠው ረቂቅ መረጃዎ ተመልሷል' : 'Restored your draft answers'}</strong> (${isAm ? 'ደረጃ ' + stepNumber : 'Step ' + stepNumber})</span>
+        <button type="button" class="ik-draft-banner-btn">${isAm ? 'አዲስ ጀምር' : 'Start over'}</button>
+      `;
+      draftBanner.querySelector('.ik-draft-banner-btn').addEventListener('click', () => {
+        if (typeof this.onClearDraft === 'function') {
+          this.onClearDraft();
+        }
+        this.answers = {};
+        this.currentStep = 0;
+        this.draftRestored = false;
+        this.render();
+      });
+      this.container.appendChild(draftBanner);
+    }
 
     // Progress Bar & Live Announcement
     const progressContainer = document.createElement('div');
@@ -125,12 +167,42 @@ export class StepEngine {
       answers: this.answers,
       isFirst: this.currentStep === 0,
       isLast: this.currentStep === totalSteps - 1,
-      onNext: (val) => {
+      onChange: (val) => {
         this.answers[screenConfig.id] = val;
-        this.progressStore.save({
-          stepIndex: this.currentStep + 1,
-          answers: this.answers
-        });
+        this.saveDraft();
+      },
+      onNext: async (val) => {
+        this.answers[screenConfig.id] = val;
+        this.draftRestored = false;
+        this.saveDraft();
+
+        if (typeof screenConfig.onValidateAsync === 'function') {
+          const nextBtn = this.activeScreenComponent && this.activeScreenComponent.element && this.activeScreenComponent.element.querySelector('.ik-btn-next');
+          const originalText = nextBtn ? nextBtn.innerHTML : '';
+          if (nextBtn) {
+            nextBtn.disabled = true;
+            nextBtn.innerHTML = '<span>⏳...</span>';
+          }
+          try {
+            const proceed = await screenConfig.onValidateAsync(val, this.answers, this);
+            if (proceed === false) {
+              if (nextBtn) {
+                nextBtn.disabled = false;
+                nextBtn.innerHTML = originalText;
+              }
+              return;
+            }
+          } catch (e) {
+            if (nextBtn) {
+              nextBtn.disabled = false;
+              nextBtn.innerHTML = originalText;
+            }
+          }
+          if (nextBtn) {
+            nextBtn.disabled = false;
+            nextBtn.innerHTML = originalText;
+          }
+        }
 
         if (this.currentStep < totalSteps - 1) {
           this.currentStep += 1;
@@ -141,6 +213,8 @@ export class StepEngine {
       },
       onBack: (val) => {
         this.answers[screenConfig.id] = val;
+        this.draftRestored = false;
+        this.saveDraft();
         if (this.currentStep > 0) {
           this.currentStep -= 1;
           this.render();

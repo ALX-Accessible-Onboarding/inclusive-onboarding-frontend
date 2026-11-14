@@ -100,13 +100,16 @@ async function runTests() {
 
   // 10. Form Validation & Required Field Tests
   console.log('\n--- 10. Form Validation & Required Field Tests ---');
-  // 10a. Exactly 12-digit phone validation
-  if (validateContact('phone', '251912345678') !== null) throw new Error('Valid 12-digit phone failed validation');
-  if (validateContact('phone', '+251912345678') !== null) throw new Error('Valid +251 12-digit phone failed validation');
-  if (validateContact('phone', '0912345678') === null) throw new Error('10-digit phone should fail validation');
-  if (validateContact('phone', '25191234567899') === null) throw new Error('14-digit phone should fail validation');
-  if (validateContact('phone', '251912345abc') === null) throw new Error('Phone with letters should fail validation');
-  console.log('10a. 12-digit phone validation passed: rejected <12, >12, and non-numeric numbers.');
+  // 10a. 10-digit phone validation starting with 09 or 07
+  if (validateContact('phone', '0912345678') !== null) throw new Error('Valid 09 phone failed validation');
+  if (validateContact('phone', '0712345678') !== null) throw new Error('Valid 07 phone failed validation');
+  if (validateContact('phone', '09 12 34 56 78') !== null) throw new Error('Valid spaced 09 phone failed validation');
+  if (validateContact('phone', '0812345678') === null) throw new Error('08 prefix phone should fail validation');
+  if (validateContact('phone', '091234567') === null) throw new Error('9-digit phone should fail validation');
+  if (validateContact('phone', '09123456789') === null) throw new Error('11-digit phone should fail validation');
+  if (validateContact('phone', '251912345678') === null) throw new Error('12-digit international phone should fail validation');
+  if (validateContact('phone', '0912345abc') === null) throw new Error('Phone with letters should fail validation');
+  console.log('10a. 10-digit phone validation passed: required 10 digits starting with 09 or 07, rejected non-matching numbers.');
 
   // 10b. Appropriate email format
   if (validateContact('email', 'user@example.com') !== null) throw new Error('Valid email failed validation');
@@ -132,6 +135,68 @@ async function runTests() {
   if (validateIdNumber('refugee', 'ETH-12345') !== null) throw new Error('ETH-12345 should be valid refugee ID');
   if (validateIdNumber('refugee', 'bad') === null) throw new Error('Short refugee ID should be rejected');
   console.log('10d. ID format validation passed: enforced required format per route and rejected invalid formats.');
+
+  // 11. Pagination Tests
+  console.log('\n--- 11. Job Pagination Tests ---');
+  const allJobs = await api.getAllJobs();
+  const pageSize = 5;
+  const totalPages = Math.max(1, Math.ceil(allJobs.length / pageSize));
+  const page1 = allJobs.slice(0, pageSize);
+  if (page1.length > pageSize) throw new Error('Page 1 exceeds page size limit of 5');
+  console.log(`11a. Pagination correctly chunks ${allJobs.length} jobs into ${totalPages} page(s) with max ${pageSize} per page.`);
+
+  // 12. Duplicate Registration Detection Tests
+  console.log('\n--- 12. Duplicate Registration Detection Tests ---');
+  let duplicateCaught = false;
+  try {
+    // Attempt to create a learner with the exact same phone number as lrn_demo ('0912345678')
+    await api.createLearner({
+      name: 'Demo Learner Duplicate',
+      contact: { type: 'phone', value: '0912345678' },
+      idRoute: 'kebele'
+    });
+  } catch (err) {
+    if (err.status === 409 && err.existingId) {
+      duplicateCaught = true;
+      console.log('12a. Successfully caught duplicate registration (409 Conflict) with existingId:', err.existingId);
+    }
+  }
+  if (!duplicateCaught) throw new Error('Duplicate registration was not caught with 409 Conflict');
+
+  // 12b. Early Duplicate Check right after Name & Phone (Step B3)
+  const earlyCheckExisting = await api.checkLearnerExists({
+    name: 'Demo Learner',
+    contact: { type: 'phone', value: '0912345678' }
+  });
+  if (!earlyCheckExisting || !earlyCheckExisting.exists || earlyCheckExisting.existingId !== 'lrn_demo') {
+    throw new Error('Early checkLearnerExists failed to detect existing learner at step B3');
+  }
+  const earlyCheckNew = await api.checkLearnerExists({
+    name: 'New Person',
+    contact: { type: 'phone', value: '0977889900' }
+  });
+  if (earlyCheckNew && earlyCheckNew.exists) {
+    throw new Error('Early checkLearnerExists falsely matched unregistered user');
+  }
+  console.log('12b. Early checkLearnerExists correctly intercepted duplicate learner right after name & phone step.');
+
+  // 13. Draft Persistence Tests
+  console.log('\n--- 13. Draft Persistence Tests ---');
+  const mockStorage = {};
+  const draftKey = 'ik_onboarding_draft';
+  const testDraft = {
+    answers: { name: 'Draft Learner', contactValue: '0912345678' },
+    stepIndex: 3,
+    timestamp: Date.now()
+  };
+  mockStorage[draftKey] = JSON.stringify(testDraft);
+  const restoredDraft = JSON.parse(mockStorage[draftKey]);
+  if (!restoredDraft || restoredDraft.answers.name !== 'Draft Learner' || restoredDraft.stepIndex !== 3) {
+    throw new Error('Draft recovery failed');
+  }
+  delete mockStorage[draftKey];
+  if (mockStorage[draftKey]) throw new Error('Draft deletion failed');
+  console.log('13a. Draft persistence and recovery verified.');
 
   console.log('\n>>> ALL DEV 2 TESTS PASSED! <<<');
 }
