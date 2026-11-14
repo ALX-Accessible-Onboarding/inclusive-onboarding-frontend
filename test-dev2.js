@@ -3,8 +3,12 @@ import * as vocab from './src/vocabulary.js';
 import * as labels from './src/labels.js';
 import { filterJobsBySupport } from './src/career/job-filter.js';
 import { createJobPostingJsonLd } from './src/career/jobposting-jsonld.js';
+import { detectLanguage } from './src/features/read-aloud.js';
+import { getLocalizedJob, translateToAmharic } from './src/labels.js';
+import { validateContact, validateName } from './src/core/validation.js';
 
 async function runTests() {
+  api.configure({ mode: 'mock' });
   console.log('--- Testing Dev 2 Features ---');
 
   // 1. Missing labels check
@@ -65,6 +69,57 @@ async function runTests() {
     supportRequested: true
   });
   console.log('8. Created application:', app.id, 'status:', app.status);
+
+  // 9. Test Language and Text-to-Speech Consistency
+  console.log('\n--- 9. Language & TTS Synchronization Tests ---');
+  // 9a. Verify Amharic job localization
+  const amJob = getLocalizedJob(jobs[0], 'am');
+  console.log('9a. Amharic Job Title:', amJob.title);
+  if (!/[\u1200-\u137F]/.test(amJob.title)) throw new Error('Amharic job title does not contain Ethiopic script!');
+  if (!/[\u1200-\u137F]/.test(amJob.description)) throw new Error('Amharic job description does not contain Ethiopic script!');
+
+  // 9b. Verify English job localization remains intact
+  const enJob = getLocalizedJob(jobs[0], 'en');
+  console.log('9b. English Job Title:', enJob.title);
+  if (enJob.title !== jobs[0].title) throw new Error('English job title was altered!');
+
+  // 9c. Verify Speech Language Detection
+  const amLang1 = detectLanguage('የርቀት ደንበኞች አገልግሎት ረዳት', null);
+  const amLang2 = detectLanguage('Any text', 'am');
+  console.log('9c. Detected Amharic lang codes:', amLang1, amLang2);
+  if (amLang1 !== 'am-ET' || amLang2 !== 'am-ET') throw new Error('Amharic language detection failed to produce am-ET');
+
+  const enLang = detectLanguage('Hello world', null);
+  console.log('9d. Detected English lang code:', enLang);
+  if (enLang !== 'en-US') throw new Error('English language detection failed');
+
+  // 9e. Verify Translation fallback
+  const translated = translateToAmharic('Remote VA - Customer Support at Acme Logistics');
+  console.log('9e. Translated text for Amharic audio:', translated);
+  if (!/[\u1200-\u137F]/.test(translated)) throw new Error('Fallback translation to Amharic failed');
+
+  // 10. Form Validation & Required Field Tests
+  console.log('\n--- 10. Form Validation & Required Field Tests ---');
+  // 10a. Exactly 12-digit phone validation
+  if (validateContact('phone', '251912345678') !== null) throw new Error('Valid 12-digit phone failed validation');
+  if (validateContact('phone', '+251912345678') !== null) throw new Error('Valid +251 12-digit phone failed validation');
+  if (validateContact('phone', '0912345678') === null) throw new Error('10-digit phone should fail validation');
+  if (validateContact('phone', '25191234567899') === null) throw new Error('14-digit phone should fail validation');
+  if (validateContact('phone', '251912345abc') === null) throw new Error('Phone with letters should fail validation');
+  console.log('10a. 12-digit phone validation passed: rejected <12, >12, and non-numeric numbers.');
+
+  // 10b. Appropriate email format
+  if (validateContact('email', 'user@example.com') !== null) throw new Error('Valid email failed validation');
+  if (validateContact('email', 'not-an-email') === null) throw new Error('Invalid email passed validation');
+  if (validateContact('email', 'user@domain') === null) throw new Error('Email without TLD passed validation');
+  if (validateContact('auto', 'user@company.org') !== null) throw new Error('Auto-detected valid email failed');
+  console.log('10b. Email format validation passed: enforced proper format with domain and TLD.');
+
+  // 10c. Required answer constraints
+  if (validateName('') === null) throw new Error('Empty name passed validation');
+  if (validateName('   ') === null) throw new Error('Whitespace name passed validation');
+  if (validateContact('auto', '') === null) throw new Error('Empty contact passed validation');
+  console.log('10c. Required answers validation passed: empty and whitespace inputs rejected.');
 
   console.log('\n>>> ALL DEV 2 TESTS PASSED! <<<');
 }

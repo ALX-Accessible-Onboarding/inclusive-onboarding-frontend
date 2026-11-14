@@ -29,6 +29,8 @@ const mountAndScript = `
             e.preventDefault();
             if (window.InclusiveKit) {
               window.InclusiveKit.openModal({
+                apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api',
+                mode: 'live',
                 initialView: 'onboarding',
                 language: 'en',
                 learnerId: 'lrn_demo'

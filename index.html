@@ -68,9 +68,11 @@
 
   <script src="./dist/inclusive-kit.js"></script>
   <script>
-    // Mount kit in page
+    // Mount kit in page connected to live backend
     const instance = InclusiveKit.mount({
       element: '#inclusive-kit',
+      apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api',
+      mode: 'live',
       initialView: 'career',
       language: 'en',
       learnerId: 'lrn_demo'
@@ -78,6 +80,8 @@
 
     document.getElementById('demo-open-modal-btn').addEventListener('click', function () {
       InclusiveKit.openModal({
+        apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api',
+        mode: 'live',
         initialView: 'career',
         language: 'en',
         learnerId: 'lrn_demo'

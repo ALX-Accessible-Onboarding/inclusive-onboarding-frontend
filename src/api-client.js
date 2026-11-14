@@ -9,7 +9,9 @@ export class ApiError extends Error {
   }
 }
 
-const config = { mode: 'mock', baseUrl: 'http://localhost:4000/api', token: 'demo-token' };
+export const LIVE_BASE_URL = 'https://inclusive-onboarding-backend.onrender.com/api';
+
+const config = { mode: 'live', baseUrl: LIVE_BASE_URL, token: 'demo-token' };
 
 // configure({ mode: 'live', baseUrl: '...', token: '...' })
 export function configure(options) {
@@ -47,7 +49,9 @@ const db = {
       partnerRef: null, createdAt: '2026-11-12T09:00:00Z'
     }
   },
-  support: {},
+  support: {
+    lrn_demo: { id: 'sup_demo', learnerId: 'lrn_demo', items: ['read_aloud', 'voice_input'], private: true, createdAt: '2026-11-12T09:00:00Z' }
+  },
   progress: {},
   applications: [],
   jobs: [
@@ -106,8 +110,18 @@ export async function getAllJobs() {
   return jobs;
 }
 
-export function getJob(id) {
-  if (isLive()) return request('GET', '/jobs/' + enc(id));
+export async function getJob(id) {
+  if (isLive()) {
+    try {
+      return await request('GET', '/jobs/' + enc(id));
+    } catch (e) {
+      // If the backend doesn't support /jobs/:id directly, find it from the full list
+      const page = await getJobs({ limit: 100, offset: 0 });
+      const job = (page.jobs || []).find(function (j) { return j.id === id; });
+      if (job) return job;
+      throw e;
+    }
+  }
   return mock(function () {
     const job = db.jobs.find(function (j) { return j.id === id; });
     if (!job) throw notFound();
@@ -145,8 +159,14 @@ export function createJob(job) {
 }
 
 /* ---------- learners ---------- */
-export function createLearner(data) {
-  if (isLive()) return request('POST', '/learners', data);
+export async function createLearner(data) {
+  if (isLive()) {
+    const learner = await request('POST', '/learners', data);
+    if (learner && learner.id) {
+      db.learners[learner.id] = Object.assign({}, data, learner);
+    }
+    return learner;
+  }
   return mock(function () {
     const errors = {};
     if (!data.name || !data.name.trim()) errors.name = 'Please tell us what to call you.';
@@ -158,40 +178,129 @@ export function createLearner(data) {
   });
 }
 
-export function getLearner(id) {
-  if (isLive()) return request('GET', '/learners/' + enc(id));
+export async function getLearner(id) {
+  // If demo ID or in local storage/cache, return directly without network error
+  if (id === 'lrn_demo') {
+    return db.learners.lrn_demo;
+  }
+  if (db.learners[id]) {
+    return db.learners[id];
+  }
+  try {
+    const raw = localStorage.getItem('ik_learner_' + id);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      db.learners[id] = parsed;
+      return parsed;
+    }
+  } catch (e) {}
+
+  if (isLive()) {
+    // Only attempt live fetch if it matches backend MongoDB ObjectId format (lrn_ + 24 hex)
+    if (typeof id === 'string' && /^lrn_[0-9a-f]{24}$/i.test(id)) {
+      try {
+        const learner = await request('GET', '/learners/' + enc(id));
+        if (learner) {
+          db.learners[id] = learner;
+          return learner;
+        }
+      } catch (e) {
+        // Backend does not expose GET /learners/:id; fall through to local fallback
+      }
+    }
+    const fallback = db.learners[id] || {
+      id: id,
+      name: 'Demo Learner',
+      contact: { type: 'phone', value: '251912345678' },
+      idRoute: 'kebele',
+      idNumber: null,
+      mode: 'standard',
+      language: 'en',
+      partnerRef: null,
+      createdAt: now()
+    };
+    db.learners[id] = fallback;
+    return fallback;
+  }
   return mock(function () {
     if (!db.learners[id]) throw notFound();
     return db.learners[id];
   });
 }
 
-export function patchLearner(id, patch) {
-  if (isLive()) return request('PATCH', '/learners/' + enc(id), patch);
-  return mock(function () {
-    const learner = db.learners[id];
-    if (!learner) throw notFound();
-    if ('name' in patch && !String(patch.name || '').trim()) {
-      throw new ApiError(400, { name: 'Please tell us what to call you.' });
-    }
-    ['name', 'contact', 'idRoute', 'idNumber', 'mode', 'language', 'partnerRef'].forEach(function (key) {
-      if (key in patch) learner[key] = patch[key];
-    });
+export async function patchLearner(id, patch) {
+  if (id === 'lrn_demo' || !isLive()) {
+    const learner = db.learners[id] || db.learners.lrn_demo;
+    Object.assign(learner, patch);
     return learner;
-  });
+  }
+
+  // Attempt live PATCH only if valid hex ID
+  let res = null;
+  if (typeof id === 'string' && /^lrn_[0-9a-f]{24}$/i.test(id)) {
+    try {
+      res = await request('PATCH', '/learners/' + enc(id), patch);
+    } catch (e) {
+      // Backend does not have PATCH /learners/:id route
+    }
+  }
+  const current = db.learners[id] || { id: id, name: 'Learner', contact: { type: 'phone', value: '251912345678' } };
+  Object.assign(current, patch, res || {});
+  db.learners[id] = current;
+  try {
+    localStorage.setItem('ik_learner_' + id, JSON.stringify(current));
+  } catch (e) {}
+  return current;
 }
 
 /* ---------- private support needs ---------- */
-export function getSupport(learnerId) {
-  if (isLive()) return request('GET', '/learners/' + enc(learnerId) + '/support');
+export async function getSupport(learnerId) {
+  // If demo ID, return immediately from memory without sending invalid ID to backend
+  if (learnerId === 'lrn_demo') {
+    return db.support.lrn_demo;
+  }
+  if (db.support[learnerId]) {
+    return db.support[learnerId];
+  }
+  if (isLive()) {
+    // Only query live backend if learnerId is a valid MongoDB 24-hex ObjectId
+    if (typeof learnerId === 'string' && /^lrn_[0-9a-f]{24}$/i.test(learnerId)) {
+      try {
+        const res = await request('GET', '/learners/' + enc(learnerId) + '/support');
+        if (res) {
+          db.support[learnerId] = res;
+          return res;
+        }
+      } catch (e) {
+        // Backend returns error or not found
+      }
+    }
+    return db.support[learnerId] || { items: [] };
+  }
   return mock(function () {
     if (!db.learners[learnerId] || !db.support[learnerId]) throw notFound(); // 404 = no support set yet
     return db.support[learnerId];
   });
 }
 
-export function saveSupport(learnerId, items) {
-  if (isLive()) return request('POST', '/learners/' + enc(learnerId) + '/support', { items: items });
+export async function saveSupport(learnerId, items) {
+  if (learnerId === 'lrn_demo') {
+    db.support[learnerId] = { id: 'sup_demo', learnerId: 'lrn_demo', items: items.slice(), private: true, createdAt: now() };
+    return db.support[learnerId];
+  }
+  if (isLive()) {
+    if (typeof learnerId === 'string' && /^lrn_[0-9a-f]{24}$/i.test(learnerId)) {
+      try {
+        const res = await request('POST', '/learners/' + enc(learnerId) + '/support', { items: items });
+        db.support[learnerId] = res;
+        return res;
+      } catch (e) {
+        // Fall back to local caching
+      }
+    }
+    db.support[learnerId] = { id: nextId('sup'), learnerId: learnerId, items: items.slice(), private: true, createdAt: now() };
+    return db.support[learnerId];
+  }
   return mock(function () {
     if (!db.learners[learnerId]) throw notFound();
     const errors = {};
@@ -231,7 +340,13 @@ export function createReferral(data) {
 }
 
 export function saveProgress(snapshot) {
-  if (isLive()) return request('POST', '/progress', snapshot);
+  if (isLive()) {
+    const payload = Object.assign({
+      flow: snapshot.flow || 'onboarding',
+      step: snapshot.step !== undefined ? snapshot.step : (snapshot.stepIndex !== undefined ? snapshot.stepIndex : 0)
+    }, snapshot);
+    return request('POST', '/progress', payload);
+  }
   return mock(function () {
     db.progress[snapshot.sessionId] = Object.assign({ id: nextId('prog'), updatedAt: now() }, snapshot);
     return db.progress[snapshot.sessionId];

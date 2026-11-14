@@ -1,6 +1,6 @@
 import { speak, stopSpeaking, isSpeaking, isSpeechSupported } from '../features/read-aloud.js';
 import { startVoiceRecognition, isVoiceSupported } from '../features/voice-input.js';
-import { t } from '../labels.js';
+import { t, translateToAmharic } from '../labels.js';
 
 /**
  * Reusable single question screen component.
@@ -81,7 +81,23 @@ export class QuestionScreen {
           this.isSpeakingNow = false;
           readBtn.classList.remove('ik-speaking');
         } else {
-          const textToRead = this.config.readAloudText || (this.config.title + '. ' + (this.config.helpText || ''));
+          let textToRead = '';
+          if (typeof this.config.readAloudText === 'function') {
+            textToRead = this.config.readAloudText(lang);
+          } else if (this.config.readAloudText && typeof this.config.readAloudText === 'object') {
+            textToRead = this.config.readAloudText[lang] || this.config.readAloudText.en;
+          } else if (this.config.readAloudText) {
+            textToRead = this.config.readAloudText;
+          } else {
+            textToRead = (this.config.title || this.config.label || '') + '. ' + (this.config.helpText || '');
+          }
+
+          // Strict language consistency check:
+          // If language is Amharic, ensure textToRead is in Amharic
+          if (lang === 'am' || (typeof lang === 'string' && lang.startsWith('am'))) {
+            textToRead = translateToAmharic(textToRead);
+          }
+
           this.isSpeakingNow = true;
           readBtn.classList.add('ik-speaking');
           speak(textToRead, {
@@ -210,9 +226,36 @@ export class QuestionScreen {
       inputField.placeholder = this.config.placeholder || '';
       if (this.config.helpText) inputField.setAttribute('aria-describedby', helpId);
 
+      // Restrict phone input to 12 digits
+      const isPhoneField = this.config.inputType === 'tel' || this.config.id === 'contactValue';
+      if (isPhoneField) {
+        inputField.setAttribute('autocomplete', 'tel');
+      }
+
       inputField.addEventListener('input', (e) => {
-        this.currentValue = e.target.value;
+        let val = e.target.value;
+        // If typing phone digits without '@', limit strictly to 12 digits
+        if (isPhoneField && !val.includes('@')) {
+          const digits = val.replace(/[^0-9]/g, '');
+          if (digits.length > 12) {
+            const hasPlus = val.trim().startsWith('+');
+            val = (hasPlus ? '+' : '') + digits.slice(0, 12);
+            inputField.value = val;
+          }
+        }
+        this.currentValue = val;
         this.clearError();
+      });
+
+      // Submit step on Enter key if valid
+      inputField.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          stopSpeaking();
+          if (this.validate()) {
+            this.config.onNext(this.currentValue);
+          }
+        }
       });
       inputArea.appendChild(inputField);
 
@@ -403,7 +446,7 @@ export class QuestionScreen {
         errEl.textContent = message;
         errEl.classList.remove('ik-hidden');
       }
-      const input = this.element.querySelector('input, textarea');
+      const input = this.element.querySelector('input, textarea, [type="radio"], [type="checkbox"]');
       if (input) {
         input.setAttribute('aria-invalid', 'true');
         input.focus();
@@ -419,14 +462,33 @@ export class QuestionScreen {
         errEl.textContent = '';
         errEl.classList.add('ik-hidden');
       }
-      const input = this.element.querySelector('input, textarea');
-      if (input) {
-        input.removeAttribute('aria-invalid');
-      }
+      const inputs = this.element.querySelectorAll('input, textarea');
+      inputs.forEach(input => input.removeAttribute('aria-invalid'));
     }
   }
 
   validate() {
+    const lang = this.config.language;
+    const isAm = lang === 'am' || (typeof lang === 'string' && lang.startsWith('am'));
+
+    // Check required constraints so user cannot pass without answering required steps
+    if (this.config.required) {
+      if (this.config.inputType === 'checkbox') {
+        if (!Array.isArray(this.currentValue) || this.currentValue.length === 0) {
+          this.showError(isAm ? 'እባክዎ ለመቀጠል ቢያንስ አንድ አማራጭ ይምረጡ።' : 'Please select at least one option to continue.');
+          return false;
+        }
+      } else if (this.config.inputType === 'radio') {
+        if (!this.currentValue) {
+          this.showError(isAm ? 'እባክዎ ለመቀጠል አንዱን ይምረጡ።' : 'Please choose an option to continue.');
+          return false;
+        }
+      } else if (this.currentValue === undefined || this.currentValue === null || !String(this.currentValue).trim()) {
+        this.showError(isAm ? 'ይህ ጥያቄ መመለስ አለበት። እባክዎ መልስዎን ያስገቡ።' : 'This question is required. Please provide an answer.');
+        return false;
+      }
+    }
+
     if (typeof this.config.validation === 'function') {
       const err = this.config.validation(this.currentValue);
       if (err) {

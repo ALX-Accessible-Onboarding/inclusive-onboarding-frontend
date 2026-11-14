@@ -3,6 +3,7 @@ import { QuestionScreen } from '../core/question-screen.js';
 import { validateName, validateContact, validateIdNumber } from '../core/validation.js';
 import { SUPPORT_NEEDS, ID_ROUTES } from '../vocabulary.js';
 import { label, t } from '../labels.js';
+import { getLearnerId, clearLearnerId } from '../core/learner-session.js';
 
 /**
  * Tasks D1, D2: Profile page rendering and field editing reusing QuestionScreen.
@@ -25,9 +26,19 @@ export class LearnerProfile {
   async init() {
     this.loading = true;
     this.render();
+
+    // Check if we have a saved real learner ID from backend onboarding
+    const savedId = getLearnerId();
+    if (savedId && (!this.learnerId || this.learnerId === 'lrn_demo')) {
+      this.learnerId = savedId;
+    }
+
     try {
       this.learner = await getLearner(this.learnerId);
     } catch (err) {
+      if (err && (err.status === 404 || (err.errors && err.errors._ && err.errors._.includes('404')))) {
+        clearLearnerId();
+      }
       this.error = err.errors && err.errors._ ? err.errors._ : 'Could not load learner profile.';
       this.loading = false;
       this.render();
@@ -350,14 +361,17 @@ export class LearnerProfile {
     this.renderEditScreen({
       id: 'contact',
       title: this.language === 'am' ? 'የመገናኛ አድራሻ' : 'Contact Information',
-      label: this.language === 'am' ? 'የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ 09 12 34 56 78)' : 'Please enter your phone number (e.g. 09 12 34 56 78)',
+      label: currentType === 'email'
+        ? (this.language === 'am' ? 'የኢሜይል አድራሻዎን ያስገቡ' : 'Please enter your email address')
+        : (this.language === 'am' ? 'ባለ 12 አሃዝ የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ፡ 251912345678)' : 'Please enter your 12-digit phone number (e.g. 251912345678)'),
       value: currentVal,
-      inputType: 'tel',
+      inputType: currentType === 'email' ? 'email' : 'tel',
       voiceEnabled: true,
-      validation: (val) => validateContact(currentType, val)
+      validation: (val) => validateContact(currentType, val, this.language)
     }, async (val) => {
+      const cleanVal = currentType === 'phone' ? String(val).replace(/[^0-9]/g, '') : String(val).trim();
       const updated = await patchLearner(this.learnerId, {
-        contact: { type: currentType, value: val }
+        contact: { type: currentType, value: cleanVal }
       });
       this.learner = updated;
     });

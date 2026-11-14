@@ -1,6 +1,7 @@
 import { QuestionScreen } from './question-screen.js';
 import { ProgressStore } from './progress-store.js';
 import { speak, isSpeaking, stopSpeaking } from '../features/read-aloud.js';
+import { translateToAmharic } from '../labels.js';
 
 /**
  * StepEngine: manages sequential question screens, progress, and state.
@@ -131,7 +132,19 @@ export class StepEngine {
       this.activeScreenComponent.focus();
       // Auto-read if enabled
       if (this.autoRead) {
-        const text = screenConfig.readAloudText || (screenConfig.title + '. ' + (screenConfig.helpText || ''));
+        let text = '';
+        if (typeof screenConfig.readAloudText === 'function') {
+          text = screenConfig.readAloudText(this.language);
+        } else if (screenConfig.readAloudText && typeof screenConfig.readAloudText === 'object') {
+          text = screenConfig.readAloudText[this.language] || screenConfig.readAloudText.en;
+        } else if (screenConfig.readAloudText) {
+          text = screenConfig.readAloudText;
+        } else {
+          text = (screenConfig.title || screenConfig.label || '') + '. ' + (screenConfig.helpText || '');
+        }
+        if (this.language === 'am' || this.language.startsWith('am')) {
+          text = translateToAmharic(text);
+        }
         speak(text, { language: this.language });
       }
     }, 50);

@@ -4,6 +4,7 @@ import { LearnerProfile } from './flows/profile.js';
 import { CareerGateway } from './career/job-list.js';
 import { renderEmployerForm } from './flows/employer-form.js';
 import { t } from './labels.js';
+import { getLearnerId, saveLearnerId, clearLearnerId } from './core/learner-session.js';
 
 let activeInstance = null; // the kit on the page
 let modalInstance = null;  // the kit inside the modal (separate, so opening the modal never destroys the page one)
@@ -30,8 +31,8 @@ export class InclusiveKitInstance {
   constructor(options) {
     this.options = Object.assign({
       element: null,
-      apiBaseUrl: 'http://localhost:4000/api',
-      mode: 'mock',          // 'mock' (fake data) or 'live' (real backend)
+      apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api',
+      mode: 'live',          // 'mock' (fake data) or 'live' (real backend)
       token: 'demo-token',
       language: 'en',
       theme: 'default',
@@ -53,9 +54,15 @@ export class InclusiveKitInstance {
       token: this.options.token
     });
 
+    const storedLearnerId = getLearnerId() || (() => {
+      try { return localStorage.getItem('inclusive_learner_id') || localStorage.getItem('ik_current_learner_id'); } catch (e) { return null; }
+    })();
+
     this.currentView = this.options.initialView;
     this.language = this.options.language;
-    this.learnerId = this.options.learnerId;
+    this.learnerId = this.options.learnerId && this.options.learnerId !== 'lrn_demo'
+      ? this.options.learnerId
+      : (storedLearnerId || 'lrn_demo');
     this.isSimpleMode = false;
     this.root = null;
     this.contentContainer = null;
