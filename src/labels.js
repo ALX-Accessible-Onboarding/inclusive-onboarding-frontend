@@ -8,6 +8,10 @@ export const LABELS = {
     voice_input:   { en: 'Speak instead of typing',  am: 'ከመጻፍ ይልቅ በድምፅ መናገር' },
     more_time:     { en: 'More time',                am: 'ተጨማሪ ጊዜ' },
     sign_language: { en: 'Sign language',            am: 'የምልክት ቋንቋ' },
+    nav_label:   { en: 'Main menu',                 am: 'ዋና ምናሌ' },
+    mode_label:  { en: 'Simple + Icons',            am: 'ቀላል + ምስሎች' },
+    modal_title: { en: 'Savanna Accessible Access', am: 'የሳቫና ተደራሽ መዳረሻ' },
+    close:       { en: 'Close',                     am: 'ዝጋ' },
     other:         { en: 'Something else',           am: 'ሌላ' }
   },
   accommodation: {

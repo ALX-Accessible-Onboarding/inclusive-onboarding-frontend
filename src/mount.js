@@ -5,32 +5,53 @@ import { CareerGateway } from './career/job-list.js';
 import { renderEmployerForm } from './flows/employer-form.js';
 import { t } from './labels.js';
 
-let activeInstance = null;
+let activeInstance = null; // the kit on the page
+let modalInstance = null;  // the kit inside the modal (separate, so opening the modal never destroys the page one)
+
+function stopSpeech() {
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+// Icon (hidden from screen readers) + text. Uses textContent, never innerHTML.
+function setIconLabel(button, icon, text, textLang) {
+  const iconSpan = document.createElement('span');
+  iconSpan.setAttribute('aria-hidden', 'true');
+  iconSpan.textContent = icon;
+  const textSpan = document.createElement('span');
+  textSpan.textContent = text;
+  if (textLang) textSpan.setAttribute('lang', textLang);
+  button.textContent = '';
+  button.appendChild(iconSpan);
+  button.appendChild(document.createTextNode(' '));
+  button.appendChild(textSpan);
+}
 
 export class InclusiveKitInstance {
   constructor(options) {
     this.options = Object.assign({
       element: null,
       apiBaseUrl: 'http://localhost:4000/api',
+      mode: 'mock',          // 'mock' (fake data) or 'live' (real backend)
+      token: 'demo-token',
       language: 'en',
       theme: 'default',
       initialView: 'career', // 'onboarding' | 'profile' | 'career' | 'employer'
       learnerId: 'lrn_demo'
     }, options);
 
-    if (typeof this.options.element === 'string') {
-      this.targetElement = document.querySelector(this.options.element);
-    } else {
-      this.targetElement = this.options.element;
-    }
+    this.targetElement = typeof this.options.element === 'string'
+      ? document.querySelector(this.options.element)
+      : this.options.element;
 
     if (!this.targetElement) {
       throw new Error('[InclusiveKit] Target element not found');
     }
 
-    if (this.options.apiBaseUrl) {
-      configure({ baseUrl: this.options.apiBaseUrl });
-    }
+    configure({
+      baseUrl: this.options.apiBaseUrl,
+      mode: this.options.mode,
+      token: this.options.token
+    });
 
     this.currentView = this.options.initialView;
     this.language = this.options.language;
@@ -46,31 +67,55 @@ export class InclusiveKitInstance {
   setLanguage(lang) {
     this.language = lang;
     this.render();
+    this.focusControl('.ik-lang-toggle');
   }
 
   setView(viewName) {
     this.currentView = viewName;
     this.renderView();
     this.updateNavTabs();
+    this.focusContentHeading();
+  }
+
+  // render() rebuilds the buttons, so put focus back where the keyboard user was
+  focusControl(selector) {
+    const control = this.root && this.root.querySelector(selector);
+    if (control) control.focus();
+  }
+
+  // After a view change, move focus to the new heading so screen readers announce it
+  focusContentHeading() {
+    const heading = this.contentContainer && this.contentContainer.querySelector('h1, h2');
+    if (heading) {
+      heading.setAttribute('tabindex', '-1');
+      heading.focus();
+    }
+  }
+
+  destroyChild() {
+    if (this.activeChild && typeof this.activeChild.destroy === 'function') {
+      this.activeChild.destroy();
+    }
+    this.activeChild = null;
+    stopSpeech();
   }
 
   render() {
-    this.targetElement.innerHTML = '';
+    this.destroyChild();
+    this.targetElement.textContent = '';
 
     const root = document.createElement('div');
-    root.id = 'inclusive-kit';
     root.className = 'ik-root';
+    root.setAttribute('lang', this.language); // the kit's language only; the host page is never touched
     this.root = root;
 
-    // Top Navigation & Accessibility Bar
-    const navBar = document.createElement('header');
+    // Plain div (no banner role): the host page already has its own landmarks
+    const navBar = document.createElement('div');
     navBar.className = 'ik-top-nav';
-    navBar.setAttribute('role', 'banner');
 
-    // Navigation Tabs
     const tabsContainer = document.createElement('nav');
     tabsContainer.className = 'ik-nav-tabs';
-    tabsContainer.setAttribute('aria-label', 'Inclusive Kit Navigation');
+    tabsContainer.setAttribute('aria-label', t('nav_label', this.language));
 
     const views = [
       { id: 'career', label: t('career', this.language), icon: '💼' },
@@ -79,55 +124,50 @@ export class InclusiveKitInstance {
       { id: 'employer', label: t('employer', this.language), icon: '📝' }
     ];
 
-    views.forEach(v => {
+    views.forEach((v) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'ik-btn ik-nav-tab ' + (this.currentView === v.id ? 'ik-active' : '');
+      btn.className = 'ik-btn ik-nav-tab' + (this.currentView === v.id ? ' ik-active' : '');
       btn.setAttribute('data-view', v.id);
-      btn.setAttribute('aria-current', this.currentView === v.id ? 'page' : 'false');
-      btn.innerHTML = `<span aria-hidden="true">${v.icon}</span> <span>${v.label}</span>`;
-      btn.addEventListener('click', () => {
-        this.setView(v.id);
-      });
+      if (this.currentView === v.id) btn.setAttribute('aria-current', 'page');
+      setIconLabel(btn, v.icon, v.label);
+      btn.addEventListener('click', () => this.setView(v.id));
       tabsContainer.appendChild(btn);
     });
-
     navBar.appendChild(tabsContainer);
 
-    // Accessibility Controls: Language toggle & Mode toggle
-    const actionsContainer = document.createElement('div');
-    actionsContainer.className = 'ik-nav-actions';
+    const actions = document.createElement('div');
+    actions.className = 'ik-nav-actions';
 
-    // Language Toggle (EN / AM)
+    // Language toggle: shows the language you will switch TO, written in that language.
+    // No aria-label, so the accessible name matches the visible text.
+    const targetLang = this.language === 'am' ? 'en' : 'am';
     const langBtn = document.createElement('button');
     langBtn.type = 'button';
     langBtn.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-lang-toggle';
-    langBtn.setAttribute('aria-label', 'Switch language');
-    langBtn.innerHTML = `<span aria-hidden="true">🌐</span> <span>${this.language === 'am' ? 'English' : 'አማርኛ'}</span>`;
-    langBtn.addEventListener('click', () => {
-      this.setLanguage(this.language === 'am' ? 'en' : 'am');
-    });
-    actionsContainer.appendChild(langBtn);
+    setIconLabel(langBtn, '🌐', targetLang === 'am' ? 'አማርኛ' : 'English', targetLang);
+    langBtn.addEventListener('click', () => this.setLanguage(targetLang));
+    actions.appendChild(langBtn);
 
-    // Simple Mode Toggle
+    // Mode toggle: one stable label, state is announced through aria-pressed
     const modeBtn = document.createElement('button');
     modeBtn.type = 'button';
-    modeBtn.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-mode-toggle ' + (this.isSimpleMode ? 'ik-active' : '');
+    modeBtn.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-mode-toggle' + (this.isSimpleMode ? ' ik-active' : '');
     modeBtn.setAttribute('aria-pressed', this.isSimpleMode ? 'true' : 'false');
-    modeBtn.innerHTML = `<span aria-hidden="true">🖼️</span> <span>${this.isSimpleMode ? 'Standard text' : 'Simple + Icons'}</span>`;
+    setIconLabel(modeBtn, '🖼️', t('mode_label', this.language));
     modeBtn.addEventListener('click', () => {
       this.isSimpleMode = !this.isSimpleMode;
       this.render();
+      this.focusControl('.ik-mode-toggle');
     });
-    actionsContainer.appendChild(modeBtn);
+    actions.appendChild(modeBtn);
 
-    navBar.appendChild(actionsContainer);
+    navBar.appendChild(actions);
     root.appendChild(navBar);
 
-    // View Content Container
-    const content = document.createElement('main');
+    // Plain div (no <main>): the host page already has one
+    const content = document.createElement('div');
     content.className = 'ik-view-content';
-    content.id = 'ik-view-content';
     this.contentContainer = content;
     root.appendChild(content);
 
@@ -137,9 +177,8 @@ export class InclusiveKitInstance {
 
   updateNavTabs() {
     if (!this.root) return;
-    this.root.querySelectorAll('.ik-nav-tab').forEach(tab => {
-      const v = tab.getAttribute('data-view');
-      if (v === this.currentView) {
+    this.root.querySelectorAll('.ik-nav-tab').forEach((tab) => {
+      if (tab.getAttribute('data-view') === this.currentView) {
         tab.classList.add('ik-active');
         tab.setAttribute('aria-current', 'page');
       } else {
@@ -151,7 +190,8 @@ export class InclusiveKitInstance {
 
   renderView() {
     if (!this.contentContainer) return;
-    this.contentContainer.innerHTML = '';
+    this.destroyChild();
+    this.contentContainer.textContent = '';
 
     if (this.currentView === 'career') {
       const gateway = new CareerGateway({
@@ -207,22 +247,18 @@ export class InclusiveKitInstance {
   }
 
   destroy() {
+    this.destroyChild();
     if (this.root && this.root.parentElement) {
       this.root.parentElement.removeChild(this.root);
     }
     this.root = null;
     this.contentContainer = null;
-    this.activeChild = null;
   }
 }
 
-/**
- * Task A3: Entrypoint mount function
- */
+/** Task A3: entrypoint */
 export function mount(options) {
-  if (activeInstance) {
-    activeInstance.destroy();
-  }
+  if (activeInstance) activeInstance.destroy();
   activeInstance = new InclusiveKitInstance(options);
   return activeInstance;
 }
@@ -235,69 +271,70 @@ export function unmount() {
 }
 
 /**
- * Modal mount for embedding cleanly on host static pages
+ * Modal embed using the native <dialog> element: it traps focus, closes with Esc,
+ * makes the page behind it inert, and we return focus to the opener on close.
  */
 export function openModal(options = {}) {
-  let modalMount = document.getElementById('ik-modal-host');
-  if (!modalMount) {
-    modalMount = document.createElement('div');
-    modalMount.id = 'ik-modal-host';
-    modalMount.className = 'ik-modal-backdrop';
-    modalMount.setAttribute('role', 'dialog');
-    modalMount.setAttribute('aria-modal', 'true');
-    modalMount.setAttribute('aria-label', 'Inclusive Access Kit');
+  if (document.querySelector('dialog.ik-modal-dialog')) return modalInstance; // already open
 
-    const dialog = document.createElement('div');
-    dialog.className = 'ik-modal-dialog';
+  const page = activeInstance;
+  const lang = options.language || (page && page.language) || 'en';
+  const opener = document.activeElement;
 
-    const header = document.createElement('div');
-    header.className = 'ik-modal-header';
-    header.innerHTML = `
-      <h2 class="ik-modal-title">Savanna Accessible Access</h2>
-      <button type="button" class="ik-btn ik-btn-icon ik-modal-close-btn" aria-label="Close dialog">✕</button>
-    `;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'ik-modal-dialog';
+  dialog.setAttribute('lang', lang);
+  dialog.setAttribute('aria-labelledby', 'ik-modal-title');
 
-    const body = document.createElement('div');
-    body.className = 'ik-modal-body';
-    body.id = 'ik-modal-mount-point';
+  const header = document.createElement('div');
+  header.className = 'ik-modal-header';
+  const title = document.createElement('h2');
+  title.id = 'ik-modal-title';
+  title.className = 'ik-modal-title';
+  title.textContent = t('modal_title', lang);
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'ik-btn ik-btn-icon ik-modal-close-btn';
+  closeBtn.setAttribute('aria-label', t('close', lang));
+  closeBtn.textContent = '✕';
+  header.appendChild(title);
+  header.appendChild(closeBtn);
 
-    dialog.appendChild(header);
-    dialog.appendChild(body);
-    modalMount.appendChild(dialog);
-    document.body.appendChild(modalMount);
+  const body = document.createElement('div');
+  body.className = 'ik-modal-body';
 
-    header.querySelector('.ik-modal-close-btn').addEventListener('click', () => {
-      closeModal();
-    });
+  dialog.appendChild(header);
+  dialog.appendChild(body);
 
-    modalMount.addEventListener('click', (e) => {
-      if (e.target === modalMount) closeModal();
-    });
+  let instance = null;
 
-    // Close on Escape key
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        closeModal();
-        window.removeEventListener('keydown', onKey);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-  }
-
-  modalMount.style.display = 'flex';
-  return mount({
-    element: '#ik-modal-mount-point',
-    initialView: options.initialView || 'career',
-    language: options.language || 'en',
-    learnerId: options.learnerId || 'lrn_demo'
+  // 'close' fires for Esc, the close button and backdrop clicks, so cleanup happens once, here
+  dialog.addEventListener('close', function () {
+    if (instance) instance.destroy();
+    if (modalInstance === instance) modalInstance = null;
+    dialog.remove();
+    if (opener && typeof opener.focus === 'function') opener.focus();
   });
+  closeBtn.addEventListener('click', function () { dialog.close(); });
+  dialog.addEventListener('click', function (e) {
+    if (e.target === dialog) dialog.close(); // click on the dimmed backdrop
+  });
+
+  document.body.appendChild(dialog);
+  dialog.showModal();
+
+  // Inherit mode, token and API address from the page instance
+  instance = new InclusiveKitInstance(Object.assign({}, page ? page.options : {}, {
+    element: body,
+    initialView: options.initialView || 'career',
+    language: lang,
+    learnerId: options.learnerId || (page && page.learnerId) || 'lrn_demo'
+  }));
+  modalInstance = instance;
+  return instance;
 }
 
 export function closeModal() {
-  unmount();
-  const modalMount = document.getElementById('ik-modal-host');
-  if (modalMount) {
-    modalMount.style.display = 'none';
-  }
+  const dialog = document.querySelector('dialog.ik-modal-dialog');
+  if (dialog && dialog.open) dialog.close();
 }
-

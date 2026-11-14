@@ -36,7 +36,7 @@ export class CareerGateway {
       this.error = null;
     } catch (err) {
       this.loading = false;
-      this.error = err.errors && err.errors._ ? err.errors._ : 'Could not load jobs.';
+      this.error = err.errors && err.errors._ ? err.errors._ : t('loadError', this.language);
     }
     this.render();
   }
@@ -54,23 +54,17 @@ export class CareerGateway {
     return result;
   }
 
-  getPlainLanguageSummary(job) {
-    // Generate simple, structured bullet points from description
+    getPlainLanguageSummary(job) {
+    // Prefer a summary written by the employer/backend. Never guess facts from keywords.
+    if (Array.isArray(job.plainSummary) && job.plainSummary.length) return job.plainSummary;
+    if (typeof job.plainSummary === 'string' && job.plainSummary.trim()) return [job.plainSummary.trim()];
+
     const lines = [];
-    if (job.description.toLowerCase().includes('home') || job.description.toLowerCase().includes('remote')) {
-      lines.push(this.language === 'am' ? '🏠 ስራው ከቤት የሚሰራ ነው (Remote)' : '🏠 Work from home (Remote).');
-    }
-    if (job.description.toLowerCase().includes('training')) {
-      lines.push(this.language === 'am' ? '📚 ስልጠና ይሰጣል' : '📚 Training is provided.');
-    }
-    // Extract first two sentences
-    const sentences = job.description.split('.').filter(s => s.trim().length > 0);
-    if (sentences.length > 0) {
-      lines.push('📌 ' + sentences[0].trim() + '.');
-    }
-    if (job.accommodations && job.accommodations.length > 0) {
+    const first = (job.description || '').trim().split(/\.\s|\n/)[0].replace(/\.$/, '');
+    if (first) lines.push(first + '.');
+    if (job.accommodations && job.accommodations.length) {
       const accLabels = job.accommodations.map(a => label('accommodation', a, this.language)).join(', ');
-      lines.push(this.language === 'am' ? '♿ የተዘጋጁ ድጋፎች፡ ' + accLabels : '♿ Accommodations available: ' + accLabels);
+      lines.push(t('accommodationsAvailable', this.language) + ' ' + accLabels);
     }
     return lines;
   }
@@ -86,7 +80,7 @@ export class CareerGateway {
     header.className = 'ik-gateway-header';
     header.innerHTML = `
       <div class="ik-gateway-title-group">
-        <h1 class="ik-gateway-title">${t('career', this.language)}</h1>
+        <h2 class="ik-gateway-title">${t('career', this.language)}</h2>
         <p class="ik-gateway-subtitle">
           ${this.language === 'am'
             ? 'አካታች የስራ እድሎችን ያግኙ። ድጋፍን ለመምረጥ የሚጠቀሙት ማጣሪያ በመሳሪያዎ ላይ ብቻ የሚቀመጥ ሲሆን ሚስጥራዊነቱ የተጠበቀ ነው።'
@@ -122,19 +116,32 @@ export class CareerGateway {
     `;
     filterSection.appendChild(filterHeading);
 
-    const filterChips = document.createElement('div');
+        const filterChips = document.createElement('div');
     filterChips.className = 'ik-filter-chips';
+
+    // The clear button always exists; it is only hidden when there is nothing to clear
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'ik-btn ik-btn-link ik-clear-filter-btn';
+    clearBtn.textContent = t('clearFilters', this.language);
+    clearBtn.hidden = this.selectedNeeds.length === 0;
 
     SUPPORT_NEEDS.forEach(need => {
       const isSelected = this.selectedNeeds.includes(need);
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'ik-filter-chip ' + (isSelected ? 'ik-chip-active' : '');
+      chip.setAttribute('data-need', need);
       chip.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-      chip.innerHTML = `
-        <span class="ik-chip-icon" aria-hidden="true">${isSelected ? '✓' : '+'}</span>
-        <span class="ik-chip-text">${label('support', need, this.language)}</span>
-      `;
+      const icon = document.createElement('span');
+      icon.className = 'ik-chip-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = isSelected ? '✓' : '+';
+      const text = document.createElement('span');
+      text.className = 'ik-chip-text';
+      text.textContent = label('support', need, this.language);
+      chip.appendChild(icon);
+      chip.appendChild(text);
 
       chip.addEventListener('click', () => {
         if (this.selectedNeeds.includes(need)) {
@@ -142,23 +149,30 @@ export class CareerGateway {
         } else {
           this.selectedNeeds.push(need);
         }
-        this.render();
+        // Update this chip in place: keyboard focus stays on it and the live region keeps working
+        const on = this.selectedNeeds.includes(need);
+        chip.classList.toggle('ik-chip-active', on);
+        chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+        icon.textContent = on ? '✓' : '+';
+        clearBtn.hidden = this.selectedNeeds.length === 0;
+        this.updateJobList(root);
       });
-
       filterChips.appendChild(chip);
     });
 
-    if (this.selectedNeeds.length > 0) {
-      const clearBtn = document.createElement('button');
-      clearBtn.type = 'button';
-      clearBtn.className = 'ik-btn ik-btn-link ik-clear-filter-btn';
-      clearBtn.textContent = this.language === 'am' ? 'ሁሉንም ማጣሪያዎች አጽዳ' : 'Clear all filters';
-      clearBtn.addEventListener('click', () => {
-        this.selectedNeeds = [];
-        this.render();
+    clearBtn.addEventListener('click', () => {
+      this.selectedNeeds = [];
+      filterChips.querySelectorAll('.ik-filter-chip').forEach(chip => {
+        chip.classList.remove('ik-chip-active');
+        chip.setAttribute('aria-pressed', 'false');
+        chip.querySelector('.ik-chip-icon').textContent = '+';
       });
-      filterChips.appendChild(clearBtn);
-    }
+      clearBtn.hidden = true;
+      this.updateJobList(root);
+      const first = filterChips.querySelector('.ik-filter-chip');
+      if (first) first.focus(); // the button the user just pressed has disappeared
+    });
+    filterChips.appendChild(clearBtn);
 
     filterSection.appendChild(filterChips);
     root.appendChild(filterSection);
@@ -175,27 +189,38 @@ export class CareerGateway {
     searchInput.setAttribute('aria-label', searchInput.placeholder);
     searchInput.addEventListener('input', (e) => {
       this.searchQuery = e.target.value;
-      this.updateJobList(root);
+      clearTimeout(this.searchTimer);
+      this.searchTimer = setTimeout(() => this.updateJobList(root), 300);
     });
     controlsRow.appendChild(searchInput);
 
     // Plain Language Toggle
-    const plainToggleBtn = document.createElement('button');
+       const plainToggleBtn = document.createElement('button');
     plainToggleBtn.type = 'button';
     plainToggleBtn.className = 'ik-btn ik-btn-secondary ik-plain-toggle-btn ' + (this.plainLanguageMode ? 'ik-active' : '');
     plainToggleBtn.setAttribute('aria-pressed', this.plainLanguageMode ? 'true' : 'false');
-    plainToggleBtn.innerHTML = `
-      <span aria-hidden="true">📖</span>
-      <span>${this.plainLanguageMode ? t('standardView', this.language) : t('plainLanguageSummary', this.language)}</span>
-    `;
+    const plainIcon = document.createElement('span');
+    plainIcon.setAttribute('aria-hidden', 'true');
+    plainIcon.textContent = '📖 ';
+    const plainText = document.createElement('span');
+    plainText.textContent = t('plainLanguageSummary', this.language); // stable label; aria-pressed announces the state
+    plainToggleBtn.appendChild(plainIcon);
+    plainToggleBtn.appendChild(plainText);
     plainToggleBtn.addEventListener('click', () => {
       this.plainLanguageMode = !this.plainLanguageMode;
-      this.render();
+      plainToggleBtn.classList.toggle('ik-active', this.plainLanguageMode);
+      plainToggleBtn.setAttribute('aria-pressed', this.plainLanguageMode ? 'true' : 'false');
+      this.updateJobList(root);
     });
     controlsRow.appendChild(plainToggleBtn);
-
     root.appendChild(controlsRow);
 
+        // A live region must exist before its text changes, or screen readers may stay silent
+    const status = document.createElement('p');
+    status.className = 'ik-results-count';
+    status.setAttribute('role', 'status');
+    this.statusEl = status;
+    root.appendChild(status);
     // Main JobList Container
     const jobListContainer = document.createElement('div');
     jobListContainer.className = 'ik-job-list-container';
@@ -211,28 +236,39 @@ export class CareerGateway {
     container.innerHTML = '';
 
     if (this.loading) {
-      container.innerHTML = `
-        <div class="ik-loading-indicator" role="status">
-          <div class="ik-spinner"></div>
-          <p>Loading accessible opportunities...</p>
-        </div>
-      `;
+      this.statusEl.textContent = t('loadingJobs', this.language);
       return;
     }
 
     if (this.error) {
-      container.innerHTML = `
-        <div class="ik-error-card" role="alert">
-          <p class="ik-error-msg">${this.error}</p>
-          <button type="button" class="ik-btn ik-btn-secondary ik-retry-btn">Retry</button>
-        </div>
-      `;
-      container.querySelector('.ik-retry-btn').addEventListener('click', () => this.init());
+      this.statusEl.textContent = '';
+      const errCard = document.createElement('div');
+      errCard.className = 'ik-error-card';
+      errCard.setAttribute('role', 'alert');
+      const msg = document.createElement('p');
+      msg.className = 'ik-error-msg';
+      msg.textContent = this.error; // textContent: the message comes from the server
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'ik-btn ik-btn-secondary ik-retry-btn';
+      retry.textContent = t('retry', this.language);
+      retry.addEventListener('click', () => this.init());
+      errCard.appendChild(msg);
+      errCard.appendChild(retry);
+      container.appendChild(errCard);
       return;
     }
 
     const filtered = this.getFilteredJobs();
 
+    // Announced politely by the persistent role="status" element
+    const narrowed = this.selectedNeeds.length > 0 || this.searchQuery.trim() !== '';
+    if (filtered.length === 1) {
+      this.statusEl.textContent = t('resultsOne', this.language);
+    } else {
+      this.statusEl.textContent = t(narrowed ? 'resultsMatch' : 'resultsAll', this.language)
+        .replace('{n}', filtered.length);
+    }
     // Results count bar
     const countBar = document.createElement('div');
     countBar.className = 'ik-results-count-bar';
@@ -344,20 +380,22 @@ export class CareerGateway {
 
       // Accommodations Tags
       if (job.accommodations && job.accommodations.length > 0) {
-        const accContainer = document.createElement('div');
+        const accContainer = document.createElement('ul');
         accContainer.className = 'ik-job-accommodations';
-        accContainer.setAttribute('aria-label', 'Accommodations provided for this role');
-
+        accContainer.setAttribute('role', 'list');
+        accContainer.setAttribute('aria-label', t('accommodationsAvailable', this.language));
         job.accommodations.forEach(acc => {
-          const badge = document.createElement('span');
+          const badge = document.createElement('li');
           badge.className = 'ik-badge ik-badge-accommodation';
-          badge.textContent = '✓ ' + label('accommodation', acc, this.language);
+          const mark = document.createElement('span');
+          mark.setAttribute('aria-hidden', 'true');
+          mark.textContent = '✓ ';
+          badge.appendChild(mark);
+          badge.appendChild(document.createTextNode(label('accommodation', acc, this.language)));
           accContainer.appendChild(badge);
         });
-
         card.appendChild(accContainer);
       }
-
       // Description / Plain language summary
       const descArea = document.createElement('div');
       descArea.className = 'ik-job-desc-area';
@@ -389,7 +427,7 @@ export class CareerGateway {
       applyBtn.type = 'button';
       applyBtn.className = 'ik-btn ik-btn-primary ik-apply-btn';
       applyBtn.textContent = t('apply', this.language);
-      applyBtn.setAttribute('aria-label', `${t('apply', this.language)} for ${job.title} at ${job.employer}`);
+      applyBtn.setAttribute('aria-describedby', title.id);
 
       applyBtn.addEventListener('click', () => {
         stopSpeaking();
@@ -416,6 +454,10 @@ export class CareerGateway {
     });
 
     container.appendChild(grid);
+  }
+    destroy() {
+    clearTimeout(this.searchTimer);
+    stopSpeaking();
   }
 }
 

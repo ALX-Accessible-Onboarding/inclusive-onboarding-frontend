@@ -850,3 +850,117 @@
   padding: 0;
 }
 
+
+/* Dev 1 accessibility hardening: reflow, target size and motion preferences. */
+#inclusive-kit,
+#inclusive-kit-mount,
+.ik-root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#inclusive-kit img,
+.ik-root img,
+#inclusive-kit video,
+.ik-root video,
+#inclusive-kit iframe,
+.ik-root iframe {
+  max-width: 100%;
+}
+
+#inclusive-kit button,
+#inclusive-kit a,
+#inclusive-kit input,
+#inclusive-kit select,
+#inclusive-kit textarea,
+.ik-root button,
+.ik-root a,
+.ik-root input,
+.ik-root select,
+.ik-root textarea {
+  max-width: 100%;
+}
+
+/* All interactive targets, including compact controls, meet 44px minimum. */
+#inclusive-kit .ik-btn,
+#inclusive-kit .ik-btn-sm,
+.ik-root .ik-btn,
+.ik-root .ik-btn-sm {
+  min-height: 44px;
+}
+
+#inclusive-kit .ik-nav-tabs,
+#inclusive-kit .ik-nav-actions,
+.ik-root .ik-nav-tabs,
+.ik-root .ik-nav-actions {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 0.5rem;
+}
+
+#inclusive-kit .ik-options-grid,
+.ik-root .ik-options-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
+#inclusive-kit :focus:not(:focus-visible),
+.ik-root :focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (max-width: 40rem) {
+  #inclusive-kit .ik-top-nav,
+  .ik-root .ik-top-nav {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #inclusive-kit .ik-nav-tabs,
+  #inclusive-kit .ik-nav-actions,
+  .ik-root .ik-nav-tabs,
+  .ik-root .ik-nav-actions {
+    width: 100%;
+  }
+
+  #inclusive-kit .ik-nav-tab,
+  .ik-root .ik-nav-tab {
+    flex: 1 1 auto;
+  }
+
+  #inclusive-kit .ik-modal-backdrop,
+  .ik-root .ik-modal-backdrop {
+    padding: 0;
+  }
+
+  #inclusive-kit .ik-modal-dialog,
+  .ik-root .ik-modal-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #inclusive-kit *,
+  #inclusive-kit *::before,
+  #inclusive-kit *::after,
+  .ik-root *,
+  .ik-root *::before,
+  .ik-root *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  #inclusive-kit :focus-visible,
+  .ik-root :focus-visible {
+    outline: 3px solid Highlight !important;
+  }
+}
