@@ -64,7 +64,61 @@ export const UI_STRINGS = {
   at: { en: 'at', am: 'በ' },
   description: { en: 'Description:', am: 'የሥራው ዝርዝር፡' },
   workFromHome: { en: 'Work from home (Remote).', am: 'ሥራው ከቤት የሚሰራ ነው (የርቀት ሥራ)።' },
-  trainingProvided: { en: 'Training is provided.', am: 'ስልጠና ይሰጣል።' }
+  trainingProvided: { en: 'Training is provided.', am: 'ስልጠና ይሰጣል።' },
+  // Voice assistant strings (DRAFT Amharic: needs native-speaker review, as
+  // with the other Amharic strings in this file).
+  voiceReadPage: { en: 'Read this page', am: 'ይህን ገጽ አንብብልኝ' },
+  voiceStop: { en: 'Stop voice', am: 'ድምፅ አቁም' },
+  voiceCommands: { en: 'Voice commands', am: 'የድምፅ ትዕዛዞች' },
+  voiceListening: { en: 'Listening…', am: 'እያዳመጥኩ ነው…' },
+  voiceConsentTitle: { en: 'Use the Amharic voice service?', am: 'የአማርኛ ድምፅ አገልግሎትን መጠቀም ይፈልጋሉ?' },
+  voiceConsentBody: { en: 'Amharic speech is made by Google Gemini. The text on this page will be sent to Google to make audio. Your typed answers, passwords and ID numbers are not sent.', am: 'የአማርኛ ንግግር በGoogle Gemini ይዘጋጃል። በዚህ ገጽ ላይ ያለው ጽሑፍ ድምፅ ለመሥራት ወደ Google ይላካል። የጻፍካቸው መልሶች፣ የይለፍ ቃሎች እና የመታወቂያ ቁጥሮች አይላኩም።' },
+  voiceConsentSession: { en: 'Allow for this session', am: 'ለዚህ ክፍለ ጊዜ ፍቀድ' },
+  voiceConsentOnce: { en: 'Allow this once', am: 'ለዚህ ጊዜ ብቻ ፍቀድ' },
+  voiceConsentDecline: { en: 'Not now', am: 'አሁን አይደለም' },
+  voiceDeclined: { en: 'Amharic voice is off. You can still read on screen.', am: 'የአማርኛ ድምፅ ጠፍቷል። በማያ ገጹ ላይ ማንበብ ይችላሉ።' },
+  voiceUnavailable: { en: 'Voice is not available on this device. You can still use the keyboard and type.', am: 'ድምፅ በዚህ መሣሪያ ላይ አይገኝም። ኪቦርዱን ተጠቅመው መጻፍ ይችላሉ።' },
+  voiceServiceUnavailable: { en: 'The Amharic voice service is not available here. If you are testing locally, run the app with Vercel dev.', am: 'የአማርኛ ድምፅ አገልግሎት እዚህ አይገኝም። በአካባቢ እየሞከሩ ከሆነ፣ መተግበሪያውን በVercel dev ያሂዱ።' },
+  voiceNotConfigured: { en: 'The Amharic voice service is not set up yet. The server has no API key.', am: 'የአማርኛ ድምፅ አገልግሎት ገና አልተዘጋጀም። በአገልጋዩ ላይ API ቁልፍ የለም።' },
+  voiceError: { en: 'Sorry, the voice service could not speak that. Please try again.', am: 'ይቅርታ፣ የድምፅ አገልግሎቱ ይህን ማንበብ አልቻለም። እባክዎ እንደገና ይሞክሩ።' },
+  voiceStopped: { en: 'Voice stopped.', am: 'ድምፁ ቆምቷል።' },
+  voiceNothingToRead: { en: 'There is nothing to read on this page yet.', am: 'በዚህ ገጽ ላይ የሚነበብ ነገር ገና የለም።' },
+  voiceHelp: { en: 'You can say: read page, stop, help, career, profile, onboarding, or post a job.', am: 'እነዚህን መናገር ይችላሉ፡ ገጹን አንብብ፣ አቁም፣ እርዳታ፣ የሥራ እድሎች፣ መገለጫ፣ ምዝገባ፣ ወይም ሥራ ይለጥፉ።' },
+  voiceUnknownCommand: { en: 'I did not understand that. Say help for what you can say.', am: 'ይህን አልተረዳሁም። ምን መናገር እንደሚችሉ ለማወቅ እርዳታ ይበሉ።' },
+  voiceCommandError: { en: 'Voice commands did not work. Please use the keyboard or type instead.', am: 'የድምፅ ትዕዛዞች አልሰሩም። እባክዎ ኪቦርዱን ይጠቀሙ ወይም ይጻፉ።' },
+  voiceNoMicrophone: { en: 'Microphone access was denied. Voice commands need microphone permission, or you can type instead.', am: 'የማይክሮፎን ፈቃድ ተከልክሏል። የድምፅ ትዕዛዞች የማይክሮፎን ፈቃድ ያስፈልጋቸዋል፣ ወይም መጻፍ ይችላሉ።' },
+  // Voice guide strings (DRAFT Amharic: needs native-speaker review, as
+  // with the other Amharic strings in this file). The guide greets the
+  // user automatically and walks the onboarding screens by voice, so
+  // these strings are spoken, never only shown on screen.
+  guideGreeting: { en: 'Welcome to Savanna Accessible Learning.', am: 'እንኳን ወደ ሳቫና ተደራሽ የመማሪያ መድረክ በደህና መጡ።' },
+  guideGreetingFollow: { en: 'I will guide you through registration by voice, from your name until you finish.', am: 'ከስምዎ ጀምሮ እስከ ምዝገባው መጨረሻ ድረስ በድምፅ እመራዎታለሁ።' },
+  guideMicPrompt: { en: 'To answer by voice, please allow microphone access when your browser asks.', am: 'በድምፅ ለመመለስ፣ አሳሽዎ ሲጠይቅ የማይክሮፎን ፈቃድ ይስጡ።' },
+  guideMicDenied: { en: 'Microphone access was blocked, so the voice guide is off. You can still use the keyboard and the buttons.', am: 'የማይክሮፎን ፈቃድ ተከልክሏል፣ ስለዚህ የድምፅ መመሪያው ጠፍቷል። ኪቦርዱን እና ቁልፎቹን መጠቀም ይችላሉ።' },
+  guideMicUnavailable: { en: 'Voice input is not available in this browser, so the voice guide is off. You can still use the keyboard and the buttons.', am: 'የድምፅ ግብአት በዚህ አሳሽ ላይ አይገኝም፣ ስለዚህ የድምፅ መመሪያው ጠፍቷል። ኪቦርዱን እና ቁልፎቹን መጠቀም ይችላሉ።' },
+  guideSayAnswer: { en: 'Please say your answer.', am: 'እባክዎ መልስዎን ይበሉ።' },
+  guideChooseOptions: { en: 'Say the number of your choice.', am: 'የምርጫዎን ቁጥር ይበሉ።' },
+  guideCheckboxDone: { en: 'Say the numbers you want, then say done to continue.', am: 'የሚፈልጓቸውን ቁጥሮች ይበሉ፣ ከዚያም ለመቀጠል ተጠናቋል ይበሉ።' },
+  guideDidNotHear: { en: 'I did not hear you. Please speak again.', am: 'አልሰማሁም። እባክዎ እንደገና ይናገሩ።' },
+  guideUnknownAnswer: { en: 'I did not understand that answer. Please try again.', am: 'ይህን መልስ አልተረዳሁም። እባክዎ እንደገና ይሞክሩ።' },
+  guideHeard: { en: 'You said:', am: 'እርስዎ ያሉት፡' },
+  guideGotIt: { en: 'Got it.', am: 'ገብቶኛል።' },
+  guideSelected: { en: 'Selected:', am: 'የተመረጡት፡' },
+  guideNoneSelected: { en: 'Nothing selected yet.', am: 'እስካሁን ምንም አልተመረጠም።' },
+  guideHelp: { en: 'Answer by voice. Say a number to choose an option. Say back to go to the previous question, repeat to hear the question again, or stop to end the voice guide.', am: 'በድምፅ ይመልሱ። አማራጭ ለመምረጥ ቁጥር ይበሉ። ወደ ቀዳሚው ጥያቄ ለመመለስ ተመለስ ይበሉ፣ ጥያቄውን እንደገና ለመስማት እንደገና ይበሉ፣ የድምፅ መመሪያውን ለማቆም አቁም ይበሉ።' },
+  guideStopped: { en: 'Voice guide stopped.', am: 'የድምፅ መመሪያው ቆምቷል።' },
+  guideComplete: { en: 'Congratulations! Registration completed. Welcome to Savanna!', am: 'እንኳን ደስ አለዎት! ምዝገባው ተጠናቋል። እንኳን ወደ ሳቫና ደህና መጡ!' },
+  guideError: { en: 'Something went wrong with the voice guide. You can continue with the keyboard and the buttons.', am: 'በድምፅ መመሪያው ላይ ችግር ተከስቷል። በኪቦርድ እና ቁልፎች መቀጠል ይችላሉ።' },
+  guideListening: { en: 'Listening. Please speak your answer.', am: 'እያዳመጥኩ ነው። እባክዎ መልስዎን ይናገሩ።' },
+  guideTapToStart: { en: 'Tap anywhere or press any key to start the voice guide.', am: 'የድምፅ መመሪያውን ለመጀመር በማንኛውም ቦታ ይንኩ ወይም ማንኛውንም ቁልፍ ይጫኑ።' },
+  guideLangFallback: { en: 'Amharic voice understanding is not available on this device. Please answer with numbers or English words.', am: 'የአማርኛ ድምፅ መረዳት በዚህ መሣሪያ ላይ አይሰራም። እባክዎ ቁጥሮችን ወይም የእንግሊዝኛ ቃላትን ይጠቀሙ።' },
+  guideSkipHint: { en: 'You can say skip to leave this empty.', am: 'ባዶ ለማለፍ ዝለል ይበሉ።' },
+  guideBackFirst: { en: 'You are on the first question.', am: 'በመጀመሪያው ጥያቄ ላይ ነዎት።' },
+  guideRequired: { en: 'This question needs an answer before continuing.', am: 'ይህ ጥያቄ ከመቀጠልዎ በፊት መልስ ያስፈልገዋል።' },
+  guideGiveUp: { en: 'I could not hear a clear answer. The voice guide is off, but you can still type or use the buttons.', am: 'ግልጽ መልስ መስማት አልቻልኩም። የድምፅ መመሪያው ጠፍቷል፣ ግን መጻፍ ወይም ቁልፎቹን መጠቀም ይችላሉ።' },
+  guideRetryPrompt: { en: 'Say retry to try again, or stop to end the voice guide.', am: 'እንደገና ለመሞከር እንደገና ሞክር ይበሉ፣ ለማቆም አቁም ይበሉ።' },
+  guideStillWorking: { en: 'Registration is still being processed. Please wait a little longer.', am: 'ምዝገባው አሁንም በመካሄድ ላይ ነው። እባክዎ ትንሽ ይጠብቁ።' },
+  guideLanguagePrompt: { en: 'Choose your language. Say 1 for English, 2 for English simple with icons, 3 for Amharic, 4 for Amharic simple with icons. Or just say English or Amharic.', am: 'ቋንቋዎን ይምረጡ። እንግሊዝኛ ከፈለጉ 1 ይበሉ፣ ቀላል እንግሊዝኛ ከፈለጉ 2 ይበሉ፣ አማርኛ ከፈለጉ 3 ይበሉ፣ ቀላል አማርኛ ከፈለጉ 4 ይበሉ። ወይም እንግሊዝኛ ወይም አማርኛ ብለው መናገር ይችላሉ።' }
 };
 
 // Full translations for default jobs to guarantee Amharic text and speech consistency

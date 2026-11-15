@@ -6,11 +6,17 @@
     "build": "esbuild src/inclusive-kit.js src/ik-base.css --bundle --outdir=dist --target=es2019 --format=iife --global-name=InclusiveKit --minify",
     "dev": "esbuild src/inclusive-kit.js src/ik-base.css --bundle --outdir=dist --target=es2019 --format=iife --global-name=InclusiveKit --watch",
     "check": "esbuild src/dev-check.js --bundle --outdir=dist --target=es2019 --format=iife",
-    "test": "node test-dev2.js",
+    "test": "node test-dev2.js && node test-voice.js",
     "test:live": "node test-live-integration.js",
-    "serve": "npx serve ."
+    "serve": "node dev-server.js",
+    "serve:static": "npx serve .",
+    "test:voice": "node test-voice.js",
+    "voices": "node scripts/list-amharic-voices.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
   }
 }

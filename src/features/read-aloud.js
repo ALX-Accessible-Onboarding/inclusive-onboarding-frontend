@@ -1,4 +1,17 @@
-// Read-aloud wrapper using SpeechSynthesis with strict language synchronization
+// Read-aloud wrapper with strict language synchronization.
+//
+// English: browser-native SpeechSynthesis, kept local (nothing is sent anywhere).
+// Amharic: the server endpoint /api/voice/speak (Edge TTS native voices first,
+// Gemini TTS as fallback when configured), but only when the user has
+// consented (see getVoiceConsent/setVoiceConsent). Without consent, Amharic
+// falls back to the pre-existing local behaviour: an utterance with
+// lang="am-ET" and NO English voice assigned. A remote failure falls back
+// to local speech only when a real Amharic voice exists on the device; it never
+// silently uses an English voice for Amharic text.
+//
+// This module is the single speech-output path for the kit. Do not add a second
+// voice system elsewhere; the voice assistant (voice-assistant.js) calls speak()
+// here and adds page-text extraction, consent UI, announcements and commands.
 import { translateToAmharic } from '../labels.js';
 
 const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
@@ -26,15 +39,226 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   }
 }
 
-export function stopSpeaking() {
-  if (!isSpeechSupported()) return;
+/* ------------------------------------------------------------------ */
+/* Remote Amharic speech state (Edge TTS / Gemini via /api/voice/speak) */
+/* ------------------------------------------------------------------ */
+
+let voiceEndpoint = '/api/voice/speak';
+let remoteToken = 0;
+let remoteAudio = null;
+let remoteAbort = null;
+let remoteObjectUrl = null;
+let remoteSpeaking = false;
+let remotePlaybackResolve = null;
+let allowOnce = false;
+
+export const VOICE_CONSENT_KEY = 'ik_voice_consent';
+
+export function isRemoteVoiceSupported() {
+  return typeof fetch !== 'undefined'
+    && typeof Audio !== 'undefined'
+    && typeof URL !== 'undefined'
+    && typeof URL.createObjectURL === 'function';
+}
+
+export function configureVoice(options) {
+  if (!options || typeof options.endpoint !== 'string') return;
+  const endpoint = options.endpoint.trim();
+  // Same-origin relative path, or an explicit https URL (cross-origin embed),
+  // or http only for local development hosts. Anything else is ignored.
+  if (/^\/(?!\/)/.test(endpoint)
+    || /^https:\/\//.test(endpoint)
+    || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(endpoint)) {
+    voiceEndpoint = endpoint;
+  }
+}
+
+export function getVoiceEndpoint() {
+  return voiceEndpoint;
+}
+
+// Consent is stored for the browser session only (sessionStorage). 'once'
+// is kept in memory and consumed by the next remote utterance. Nothing about
+// consent is sent to the server; the server never sees this value.
+export function getVoiceConsent() {
   try {
-    synth.cancel();
-    activeUtterance = null;
+    const value = sessionStorage.getItem(VOICE_CONSENT_KEY);
+    return value === 'granted' || value === 'denied' ? value : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function setVoiceConsent(value) {
+  if (value === 'once') {
+    allowOnce = true;
+    return;
+  }
+  allowOnce = false;
+  try {
+    if (value === 'granted' || value === 'denied') {
+      sessionStorage.setItem(VOICE_CONSENT_KEY, value);
+    } else {
+      sessionStorage.removeItem(VOICE_CONSENT_KEY);
+    }
   } catch (e) {}
 }
 
+function remoteConsentAllows(opts) {
+  if (opts && opts.consent === 'granted') return true;
+  if (opts && opts.consent === 'once') return true;
+  if (allowOnce) return true;
+  return getVoiceConsent() === 'granted';
+}
+
+function consumeOnceConsent(opts) {
+  const sessionGranted = getVoiceConsent() === 'granted';
+  const optsGranted = Boolean(opts && opts.consent === 'granted');
+  if (!sessionGranted && !optsGranted) allowOnce = false;
+}
+
+// GET the voice endpoint's health response. Distinguishes three states the
+// UI must explain differently: endpoint missing (static server, no function),
+// endpoint present but the configured provider unavailable, and ready.
+// Never sends text.
+export function checkVoiceService() {
+  if (typeof fetch === 'undefined') {
+    return Promise.resolve({ reachable: false, configured: false, reason: 'fetch_unsupported' });
+  }
+  let controller = null;
+  let timeoutId = null;
+  const fetchOptions = { method: 'GET', headers: { Accept: 'application/json' } };
+  if (typeof AbortController !== 'undefined') {
+    controller = new AbortController();
+    fetchOptions.signal = controller.signal;
+    timeoutId = setTimeout(function () { controller.abort(); }, 5000);
+  }
+  return fetch(getVoiceEndpoint(), fetchOptions)
+    .then(function (res) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (!res.ok) {
+        return { reachable: res.status !== 404, configured: false, status: res.status, reason: 'endpoint_error' };
+      }
+      return res.text().then(function (bodyText) {
+        let data = null;
+        try { data = JSON.parse(bodyText); } catch (e) { data = null; }
+        if (data && typeof data.available === 'boolean') {
+          return { reachable: true, configured: data.available, reason: data.available ? 'ready' : 'not_configured' };
+        }
+        // A 200 HTML page means a static server answered, not the function.
+        return { reachable: false, configured: false, reason: 'endpoint_missing' };
+      });
+    })
+    .catch(function () {
+      if (timeoutId) clearTimeout(timeoutId);
+      return { reachable: false, configured: false, reason: 'unreachable' };
+    });
+}
+
+// Split long text into sentence-sized chunks for the remote API (which caps
+// request length). Splits on '.', '!', '?', ':' and the Ethiopic full stop
+// U+1362, then packs sentences greedily. Pure function: unit-tested.
+export function splitTextForSpeech(text, maxChars) {
+  const max = maxChars || 1200;
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return [];
+  if (clean.length <= max) return [clean];
+
+  const sentences = [];
+  let start = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean.charAt(i);
+    const isEnd = ch === '.' || ch === '!' || ch === '?' || ch === ':' || ch === '።' || ch === ';';
+    const nextIsSpace = i + 1 >= clean.length || clean.charAt(i + 1) === ' ';
+    if (isEnd && nextIsSpace) {
+      sentences.push(clean.slice(start, i + 1).trim());
+      start = i + 1;
+    }
+  }
+  const tail = clean.slice(start).trim();
+  if (tail) sentences.push(tail);
+
+  const chunks = [];
+  let current = '';
+  sentences.forEach(function (sentence) {
+    if (sentence.length > max) {
+      // One very long sentence: hard-split on word boundaries.
+      if (current) { chunks.push(current); current = ''; }
+      const words = sentence.split(' ');
+      words.forEach(function (word) {
+        while (word.length > max) {
+          if (current) { chunks.push(current); current = ''; }
+          chunks.push(word.slice(0, max));
+          word = word.slice(max);
+        }
+        if ((current + ' ' + word).trim().length > max && current) {
+          chunks.push(current);
+          current = word;
+        } else {
+          current = (current + ' ' + word).trim();
+        }
+      });
+      return;
+    }
+    if (current && (current + ' ' + sentence).length > max) {
+      chunks.push(current);
+      current = sentence;
+    } else {
+      current = current ? current + ' ' + sentence : sentence;
+    }
+  });
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+// Defence in depth for remote requests only: email addresses and long digit
+// runs (phone / ID-like numbers) are replaced before anything is sent. The
+// page-text extractor already excludes profile values and form values; this
+// catches stray numbers inside otherwise safe UI text.
+export function redactSensitivePatterns(text) {
+  return String(text || '')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '…')
+    .replace(/\+?\d[\d\s\-/]{5,}\d/g, '…');
+}
+
+function stopRemote() {
+  remoteToken += 1;
+  remoteSpeaking = false;
+  if (remoteAbort) {
+    try { remoteAbort.abort(); } catch (e) {}
+    remoteAbort = null;
+  }
+  if (remotePlaybackResolve) {
+    const resolve = remotePlaybackResolve;
+    remotePlaybackResolve = null;
+    resolve();
+  }
+  if (remoteAudio) {
+    try { remoteAudio.pause(); } catch (e) {}
+    remoteAudio.onended = null;
+    remoteAudio.onerror = null;
+    try { remoteAudio.removeAttribute('src'); remoteAudio.load(); } catch (e) {}
+    remoteAudio = null;
+  }
+  if (remoteObjectUrl) {
+    try { URL.revokeObjectURL(remoteObjectUrl); } catch (e) {}
+    remoteObjectUrl = null;
+  }
+}
+
+export function stopSpeaking() {
+  if (isSpeechSupported()) {
+    try {
+      synth.cancel();
+      activeUtterance = null;
+    } catch (e) {}
+  }
+  // Remote audio must stop even in browsers without SpeechSynthesis.
+  stopRemote();
+}
+
 export function isSpeaking() {
+  if (remoteSpeaking) return true;
   return isSpeechSupported() && synth.speaking;
 }
 
@@ -91,34 +315,13 @@ export function findVoiceForLanguage(langCode) {
   return null;
 }
 
-/**
- * Speaks text using SpeechSynthesis, maintaining strict language consistency.
- * @param {string} text
- * @param {Object} options
- * @param {string} [options.language] - 'en', 'am', 'am-ET', etc. Auto-detected if omitted.
- * @param {Function} [options.onStart]
- * @param {Function} [options.onEnd]
- * @param {Function} [options.onError]
- */
-export function speak(text, options) {
-  const opts = options || {};
-  if (!isSpeechSupported() || !text) {
-    if (opts.onEnd) opts.onEnd();
-    return;
-  }
+function voiceError(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
 
-  stopSpeaking();
-
-  const targetLang = detectLanguage(text, opts.language);
-  const isAmharic = targetLang.startsWith('am');
-
-  // Enforce language consistency:
-  // If target language is Amharic, ensure spoken text is in Amharic
-  let finalText = text;
-  if (isAmharic) {
-    finalText = translateToAmharic(text);
-  }
-
+function speakLocally(finalText, targetLang, opts) {
   const utterance = new SpeechSynthesisUtterance(finalText);
   activeUtterance = utterance;
 
@@ -129,8 +332,13 @@ export function speak(text, options) {
   // Assign appropriate voice matching target language
   const matchedVoice = findVoiceForLanguage(targetLang);
   if (matchedVoice) {
-    utterance.voice = matchedVoice;
-  } else if (isAmharic) {
+    try {
+      utterance.voice = matchedVoice;
+    } catch (err) {
+      // A browser that rejects the voice object must not kill read-aloud;
+      // the utterance still carries the correct lang for engine fallback.
+    }
+  } else if (targetLang.startsWith('am')) {
     // If no specific Amharic voice is bundled, keep utterance.lang = 'am-ET'
     // Do NOT assign an English voice to Amharic text!
     // The browser engine will synthesize using its language fallback or OS provider.
@@ -158,4 +366,163 @@ export function speak(text, options) {
     if (opts.onError) opts.onError(err);
     if (opts.onEnd) opts.onEnd();
   }
+}
+
+function playRemoteChunk(blob, token) {
+  return new Promise(function (resolve, reject) {
+    if (token !== remoteToken) { resolve(false); return; }
+    const objectUrl = URL.createObjectURL(blob);
+    remoteObjectUrl = objectUrl;
+    const audio = new Audio();
+    remoteAudio = audio;
+    audio.src = objectUrl;
+    audio.onended = function () {
+      remotePlaybackResolve = null;
+      resolve(true);
+    };
+    audio.onerror = function () {
+      remotePlaybackResolve = null;
+      reject(voiceError('audio_playback_failed', 'Remote audio could not be played.'));
+    };
+    remotePlaybackResolve = function () { resolve(false); };
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(function (err) {
+        remotePlaybackResolve = null;
+        reject(voiceError('audio_blocked', 'Audio playback was blocked by the browser. ' + (err && err.message ? err.message : '')));
+      });
+    }
+  });
+}
+
+async function speakViaRemote(finalText, opts) {
+  const token = remoteToken + 1;
+  remoteToken = token;
+  const chunks = splitTextForSpeech(redactSensitivePatterns(finalText));
+  let started = false;
+  let playedAny = false;
+
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      if (token !== remoteToken) return; // stopped
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      remoteAbort = controller;
+      const timeoutId = controller ? setTimeout(function () { controller.abort(); }, 25000) : null;
+      let res;
+      try {
+        res = await fetch(getVoiceEndpoint(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'audio/*, application/json' },
+          body: JSON.stringify({ text: chunks[i], language: 'am' }),
+          signal: controller ? controller.signal : undefined
+        });
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (remoteAbort === controller) remoteAbort = null;
+      }
+      if (token !== remoteToken) return; // stopped while fetching
+      if (!res.ok) {
+        let code = 'voice_request_failed';
+        try {
+          const data = await res.json();
+          if (data && data.error && data.error.code) code = data.error.code;
+        } catch (e) {}
+        throw voiceError(code, 'Voice service request failed with status ' + res.status + '.');
+      }
+      const blob = await res.blob();
+      if (token !== remoteToken) return;
+      if (!blob || blob.size === 0) {
+        throw voiceError('voice_empty_audio', 'Voice service returned no audio.');
+      }
+      remoteSpeaking = true;
+      if (!started) {
+        started = true;
+        if (opts.onStart) opts.onStart();
+      }
+      const played = await playRemoteChunk(blob, token);
+      if (token !== remoteToken) return; // stopped during playback
+      if (played) playedAny = true;
+    }
+    remoteSpeaking = false;
+    if (opts.onEnd) opts.onEnd();
+  } catch (err) {
+    // If stopSpeaking() ran, the token has moved on and the caller already
+    // reset its own state: stay silent. Otherwise clean up remote state
+    // (which advances the token) and then report the failure below.
+    if (token !== remoteToken) return;
+    remoteSpeaking = false;
+    stopRemote();
+    // Graceful fallback, but ONLY to a real Amharic voice on the device.
+    // Never fall back to an English voice for Amharic text.
+    if (!playedAny && isSpeechSupported() && findVoiceForLanguage('am-ET')) {
+      speakLocally(finalText, 'am-ET', opts);
+      return;
+    }
+    if (opts.onError) opts.onError(err);
+    if (opts.onEnd) opts.onEnd();
+  }
+}
+
+/**
+ * Speaks text, maintaining strict language consistency.
+ * English is always spoken locally with SpeechSynthesis.
+ * Amharic is spoken through the remote voice endpoint when the user has
+ * consented (opts.consent or a stored session consent). Without consent,
+ * Amharic is spoken locally ONLY when the device actually has an Amharic
+ * voice: a browser left to pick its default voice will read Amharic text
+ * with an English accent, which is exactly the silent substitution this
+ * kit must never do. With no Amharic voice and no consent, speak()
+ * reports an error and stays silent instead.
+ * @param {string} text
+ * @param {Object} options
+ * @param {string} [options.language] - 'en', 'am', 'am-ET', etc. Auto-detected if omitted.
+ * @param {string} [options.consent] - 'granted' | 'once' for this utterance only.
+ * @param {boolean} [options.localOnly] - never use the remote endpoint for
+ *   this utterance, even when consent is stored. The voice guide uses it
+ *   to echo a user's spoken answer only through on-device speech.
+ * @param {Function} [options.onStart]
+ * @param {Function} [options.onEnd]
+ * @param {Function} [options.onError]
+ */
+export function speak(text, options) {
+  const opts = options || {};
+  if (!text) {
+    if (opts.onEnd) opts.onEnd();
+    return;
+  }
+
+  stopSpeaking();
+
+  const targetLang = detectLanguage(text, opts.language);
+  const isAmharic = targetLang.startsWith('am');
+
+  // Enforce language consistency:
+  // If target language is Amharic, ensure spoken text is in Amharic
+  let finalText = text;
+  if (isAmharic) {
+    finalText = translateToAmharic(text);
+  }
+
+  if (isAmharic && !opts.localOnly && remoteConsentAllows(opts) && isRemoteVoiceSupported()) {
+    consumeOnceConsent(opts);
+    speakViaRemote(finalText, opts);
+    return;
+  }
+
+  // No remote path for this Amharic utterance: local speech is allowed
+  // only with a genuine Amharic voice on the device. Without one, the
+  // browser would substitute its default (usually English) voice and read
+  // Amharic with an English accent — never do that silently.
+  if (isAmharic && !findVoiceForLanguage(targetLang)) {
+    if (opts.onError) opts.onError(voiceError('no_amharic_voice', 'No Amharic voice is available on this device.'));
+    if (opts.onEnd) opts.onEnd();
+    return;
+  }
+
+  if (!isSpeechSupported()) {
+    if (opts.onEnd) opts.onEnd();
+    return;
+  }
+
+  speakLocally(finalText, targetLang, opts);
 }

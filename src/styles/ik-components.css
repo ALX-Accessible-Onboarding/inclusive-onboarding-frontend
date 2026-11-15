@@ -1099,3 +1099,48 @@
 .ik-draft-banner-btn:hover {
   color: #14532d;
 }
+/* Voice assistant: additive styles only. Buttons reuse .ik-btn (same sizes,
+   colours and focus ring); only the speaking state and the consent dialog
+   need their own rules. No existing selector is changed. */
+.ik-root .ik-voice-read-btn.ik-speaking {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+}
+
+.ik-root .ik-voice-stop-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ik-voice-consent-dialog {
+  max-width: 28rem;
+  width: calc(100% - 2rem);
+  border: 2px solid #d2d6dc;
+  border-radius: 10px;
+  padding: 1.25rem;
+  background-color: #ffffff;
+  color: #1a202c;
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
+
+.ik-voice-consent-dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+.ik-voice-consent-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+}
+
+.ik-voice-consent-body {
+  margin: 0;
+}
+
+.ik-voice-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}

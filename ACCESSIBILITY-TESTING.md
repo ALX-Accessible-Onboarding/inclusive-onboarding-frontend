@@ -41,6 +41,39 @@ Target: WCAG 2.2 AA. This checklist is a test plan, not a declaration of conform
 - [ ] Any time limit can be extended, adjusted, or turned off unless essential.
 - [ ] No CAPTCHA/login puzzle is the only way to authenticate.
 
+## Voice assistant
+
+- [ ] "Read this page", "Stop voice" and "Voice commands" have accessible
+      names, visible focus, and work keyboard-only.
+- [ ] The Amharic consent dialog traps focus, closes with Escape, returns
+      focus to the invoker, and sends nothing when declined.
+- [ ] English read-aloud uses local browser speech (no network request to
+      `/api/voice/speak`).
+- [ ] Amharic read-aloud speaks Amharic audio — never an English voice
+      reading Amharic text — and a native Amharic speaker has reviewed the
+      spoken output.
+- [ ] Voice controls are unavailable/disabled with a clear message when
+      the service is unavailable, instead of failing silently.
+- [ ] Voice commands work where recognition is supported; typing and
+      keyboard remain available everywhere voice is offered.
+- [ ] Voice commands listen continuously after one tap (no re-tap per
+      command), answer questions on question screens ("Amharic
+      standard", numbers, spoken names), read each question aloud as
+      it appears, congratulate by voice on completion, switch
+      recognition language with the screen, and stop on "stop", the
+      Stop button, or the mic button.
+- [ ] Profile values, passwords, form values and private support needs
+      are never read aloud or sent to the speech service.
+- [ ] Voice Guide: a fresh load greets automatically (or after the first
+      tap/keypress where the browser blocks autoplay), asks for
+      microphone permission, and completes onboarding by voice alone —
+      name to registration completed — on a real phone and a real
+      desktop browser, in English and in Amharic.
+- [ ] Voice Guide: "stop", "back" and "repeat" work by voice at any
+      question; a denied microphone ends the guide with a spoken
+      message; hand navigation ends it; the site stays fully usable
+      without it.
+
 ## Co-design
 
 - [ ] Test with a person with a disability and record barriers and fixes.

@@ -54,4 +54,16 @@ async function attempt(title, fn) {
       return api.createApplication({ learnerId: learnerId, jobId: jobs[0].id, answers: { coverNote: 'Hello' }, supportRequested: true });
     });
   }
+
+  // Voice API reachability: GET /api/voice/speak must return JSON with an
+  // `available` boolean. Under a plain static server it 404s (or returns
+  // HTML); under `vercel dev` / Vercel it answers. available:false means
+  // the function runs but GEMINI_API_KEY is not set on the server.
+  await attempt('Voice API health (GET /api/voice/speak)', async function () {
+    const res = await fetch('/api/voice/speak', { headers: { Accept: 'application/json' } });
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) { data = null; }
+    return { status: res.status, body: data || text.slice(0, 80) };
+  });
 })();

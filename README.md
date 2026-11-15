@@ -37,6 +37,26 @@ Open `index.html` through a local static server. The build writes `dist/inclusiv
 
 The mount root declares `lang="en"` or `lang="am"` for assistive technology. The kit does not set the language of the surrounding Savanna page.
 
+## Voice assistant
+
+An accessible EN/AM voice assistant is integrated into the kit: page
+read-aloud, navigation announcements, and continuous voice commands
+(one tap keeps the microphone open; commands navigate, answer
+questions, read each question aloud, and congratulate on
+completion), reusing the
+existing speech modules. English uses local browser speech; Amharic uses
+Edge TTS native voices through a server-side `POST /api/voice/speak`
+endpoint (no key needed), with Gemini TTS as fallback when
+`GEMINI_API_KEY` is set in server env only. Consent is asked before
+anything is sent. A hands-free Voice Guide greets blind users
+automatically on load and walks the whole onboarding by voice (name to
+registration completed); disable it with the `autoVoiceGuide: false`
+mount option. See [VOICE-ASSISTANT.md](./VOICE-ASSISTANT.md) for the full file
+list, setup, local testing with `vercel dev`, and deployment. The voice
+endpoint requires Vercel (local `vercel dev` or a deployed project); a
+plain static server cannot run it. Mount option: `voiceApiUrl` (default
+`'/api/voice/speak'`).
+
 ## Backend integration
 
 The API client currently defaults to mock mode for safe local development. Before a live integration test, the team must configure the API client with `mode: 'live'` and the backend's API base URL, then confirm request/response schemas with the backend developer. Do not put secrets or private tokens in browser code. See the backend's Swagger page for the current contract.

@@ -5,12 +5,15 @@ import { CareerGateway } from './career/job-list.js';
 import { renderEmployerForm } from './flows/employer-form.js';
 import { t } from './labels.js';
 import { getLearnerId, saveLearnerId, clearLearnerId } from './core/learner-session.js';
+import { stopSpeaking, configureVoice } from './features/read-aloud.js';
+import { VoiceAssistant } from './features/voice-assistant.js';
 
 let activeInstance = null; // the kit on the page
 let modalInstance = null;  // the kit inside the modal (separate, so opening the modal never destroys the page one)
 
 function stopSpeech() {
-  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  // Single speech-stop path: local SpeechSynthesis AND remote Gemini audio.
+  stopSpeaking();
 }
 
 // Icon (hidden from screen readers) + text. Uses textContent, never innerHTML.
@@ -37,7 +40,9 @@ export class InclusiveKitInstance {
       language: 'en',
       theme: 'default',
       initialView: 'career', // 'onboarding' | 'profile' | 'career' | 'employer'
-      learnerId: 'lrn_demo'
+      learnerId: 'lrn_demo',
+      voiceApiUrl: '/api/voice/speak', // Gemini TTS endpoint (same origin on Vercel; absolute https URL for cross-origin embeds)
+      autoVoiceGuide: true // greet automatically and offer the hands-free voice guide on first load; the modal always disables it
     }, options);
 
     this.targetElement = typeof this.options.element === 'string'
@@ -68,7 +73,20 @@ export class InclusiveKitInstance {
     this.contentContainer = null;
     this.activeChild = null;
 
+    configureVoice({ endpoint: this.options.voiceApiUrl });
+    const self = this;
+    this.voiceAssistant = new VoiceAssistant({
+      getLanguage: function () { return self.language; },
+      getContent: function () { return self.contentContainer; },
+      setView: function (viewName) { self.setView(viewName); },
+      getView: function () { return self.currentView; },
+      getRoot: function () { return self.root; }
+    });
+
     this.render();
+    if (this.options.autoVoiceGuide !== false && this.voiceAssistant) {
+      this.voiceAssistant.maybeAutoStartGuide();
+    }
   }
 
   setLanguage(lang) {
@@ -82,6 +100,13 @@ export class InclusiveKitInstance {
     this.renderView();
     this.updateNavTabs();
     this.focusContentHeading();
+    if (this.voiceAssistant) this.voiceAssistant.onViewChanged(viewName);
+  }
+
+  // Restart the hands-free voice guide (greeting + guided onboarding).
+  // Returns false when a guide is already running.
+  startVoiceGuide() {
+    return this.voiceAssistant ? this.voiceAssistant.startGuide() : false;
   }
 
   // render() rebuilds the buttons, so put focus back where the keyboard user was
@@ -108,6 +133,7 @@ export class InclusiveKitInstance {
   }
 
   render() {
+    if (this.voiceAssistant) this.voiceAssistant.cancelPending();
     this.destroyChild();
     this.targetElement.textContent = '';
 
@@ -169,6 +195,11 @@ export class InclusiveKitInstance {
     });
     actions.appendChild(modeBtn);
 
+    // Voice assistant controls (Read this page / Stop / Voice commands).
+    // Native buttons, same .ik-btn styles and focus ring as the rest of
+    // the nav; no layout or colour changes.
+    if (this.voiceAssistant) this.voiceAssistant.renderControls(actions);
+
     navBar.appendChild(actions);
     root.appendChild(navBar);
 
@@ -180,6 +211,7 @@ export class InclusiveKitInstance {
 
     this.targetElement.appendChild(root);
     this.renderView();
+    if (this.voiceAssistant) this.voiceAssistant.renderStatus(root);
   }
 
   updateNavTabs() {
@@ -254,6 +286,7 @@ export class InclusiveKitInstance {
   }
 
   destroy() {
+    if (this.voiceAssistant) this.voiceAssistant.destroy();
     this.destroyChild();
     if (this.root && this.root.parentElement) {
       this.root.parentElement.removeChild(this.root);
@@ -335,7 +368,8 @@ export function openModal(options = {}) {
     element: body,
     initialView: options.initialView || 'career',
     language: lang,
-    learnerId: options.learnerId || (page && page.learnerId) || 'lrn_demo'
+    learnerId: options.learnerId || (page && page.learnerId) || 'lrn_demo',
+    autoVoiceGuide: false // the modal never auto-greets: only one guide may run per page
   }));
   modalInstance = instance;
   return instance;
