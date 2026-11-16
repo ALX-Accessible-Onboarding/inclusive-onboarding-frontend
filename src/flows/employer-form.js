@@ -1,206 +1,201 @@
+import { StepEngine } from '../core/step-engine.js';
 import { createJob } from '../api-client.js';
 import { ACCOMMODATIONS } from '../vocabulary.js';
 import { label, t } from '../labels.js';
 import { pickLang } from '../content-translations.js';
 
 /**
- * Task E4: Employer job posting form with accessibility accommodations checklist.
+ * Task E4: Employer job posting flow with one question per screen using StepEngine.
  * @param {Object} options
  * @param {HTMLElement} options.container
- * @param {string} options.language - 'en' or 'am'
+ * @param {string} options.language - 'en', 'am', 'so', 'om', 'ti'
+ * @param {boolean} options.isSimpleMode - whether simple mode is on
  * @param {Function} options.onSuccess - callback(newJob)
  * @param {Function} options.onCancel - callback()
  */
 export function renderEmployerForm(options) {
-  const { container, language = 'en', onSuccess, onCancel } = options;
+  const { container, language = 'en', isSimpleMode = false, onSuccess, onCancel } = options;
 
-  container.innerHTML = `
-    <div class="ik-employer-form-card">
-      <div class="ik-form-header">
-        <h2 class="ik-form-title">${pickLang('Post an Inclusive Opportunity', 'አካታች የሥራ ማስታወቂያ ይለጥፉ', language)}</h2>
-        <p class="ik-form-subtitle">
-          ${pickLang('Detail the position and check off the accommodations your organization provides.', 'አካታች የስራ ቦታዎችን የሚያበረታቱ ድጋፎችን እና የስራውን ዝርዝር ያስገቡ።', language)}
-        </p>
-      </div>
+  container.innerHTML = '';
 
-      <form class="ik-employer-form" novalidate>
-        <div class="ik-form-group">
-          <label for="ik_job_title" class="ik-label">
-            ${pickLang('Job Title', 'የሥራው መጠሪያ', language)} <span class="ik-required">*</span>
-          </label>
-          <input type="text" id="ik_job_title" name="title" class="ik-input" placeholder="e.g. Remote VA - Customer Support" required>
-          <p id="ik_job_title_err" class="ik-field-error ik-hidden" role="alert"></p>
-        </div>
-
-        <div class="ik-form-group">
-          <label for="ik_job_employer" class="ik-label">
-            ${pickLang('Employer / Organization Name', 'የአሰሪው / የድርጅቱ ስም', language)} <span class="ik-required">*</span>
-          </label>
-          <input type="text" id="ik_job_employer" name="employer" class="ik-input" placeholder="e.g. Acme Logistics" required>
-          <p id="ik_job_employer_err" class="ik-field-error ik-hidden" role="alert"></p>
-        </div>
-
-        <div class="ik-form-group">
-          <label for="ik_job_description" class="ik-label">
-            ${pickLang('Job Description', 'የሥራው መግለጫ', language)} <span class="ik-required">*</span>
-          </label>
-          <textarea id="ik_job_description" name="description" rows="5" class="ik-textarea" placeholder="${
-            pickLang('Describe the responsibilities, work environment, and qualifications...', 'ዋና ዋና ተግባራትን እና ሃላፊነቶችን ያብራሩ...', language)
-          }" required></textarea>
-          <p id="ik_job_description_err" class="ik-field-error ik-hidden" role="alert"></p>
-        </div>
-
-        <div class="ik-form-group">
-          <fieldset class="ik-fieldset">
-            <legend class="ik-legend">
-              ${pickLang('Accommodations Provided by Employer', 'የሚሰጡት ድጋፎች እና አመቺ ሁኔታዎች', language)}
-            </legend>
-            <p class="ik-help-text">
-              ${pickLang('Select all adjustments, accessible tools, and supportive work arrangements you support.', 'ድርጅትዎ ለሰራተኞች ወይም ለአመልካቾች የሚያዘጋጃቸውን ሁሉ ይምረጡ።', language)}
-            </p>
-            <div class="ik-accommodations-checkboxes ik-options-grid">
-              ${ACCOMMODATIONS.map((acc, i) => `
-                <div class="ik-option-card">
-                  <input type="checkbox" id="ik_acc_${i}" name="accommodations" value="${acc}" class="ik-checkbox-input">
-                  <label for="ik_acc_${i}" class="ik-option-label">
-                    <strong>${label('accommodation', acc, language)}</strong>
-                  </label>
-                </div>
-              `).join('')}
-            </div>
-            <p id="ik_job_acc_err" class="ik-field-error ik-hidden" role="alert"></p>
-          </fieldset>
-        </div>
-
-        <div id="ik_form_general_err" class="ik-error-alert ik-hidden" role="alert"></div>
-
-        <div class="ik-form-actions">
-          ${onCancel ? `
-            <button type="button" class="ik-btn ik-btn-secondary ik-cancel-btn">
-              ${t('cancel', language)}
-            </button>
-          ` : ''}
-          <button type="submit" class="ik-btn ik-btn-primary ik-submit-job-btn">
-            ${t('submit', language)}
-          </button>
-        </div>
-      </form>
+  const flowHeader = document.createElement('div');
+  flowHeader.className = 'ik-flow-header ik-employer-flow-header';
+  flowHeader.innerHTML = `
+    ${onCancel ? `
+      <button type="button" class="ik-btn ik-btn-secondary ik-btn-sm ik-back-to-jobs" aria-label="${t('cancel', language)}">
+        ← ${t('cancel', language)}
+      </button>
+    ` : ''}
+    <div class="ik-form-header" style="margin-bottom: 0;">
+      <h2 class="ik-form-title" style="margin: 0; font-size: 1.25rem;">
+        📝 ${pickLang('Post an Inclusive Opportunity', 'አካታች የሥራ ማስታወቂያ ይለጥፉ', language)}
+      </h2>
+      <p class="ik-form-subtitle" style="margin: 0.25rem 0 0; font-size: 0.9rem; color: #4b5563;">
+        ${pickLang('Detail the position and check off the accommodations your organization provides.', 'አካታች የስራ ቦታዎችን የሚያበረታቱ ድጋፎችን እና የስራውን ዝርዝር ያስገቡ።', language)}
+      </p>
     </div>
   `;
-
-  const form = container.querySelector('.ik-employer-form');
-  const titleInput = form.querySelector('#ik_job_title');
-  const employerInput = form.querySelector('#ik_job_employer');
-  const descInput = form.querySelector('#ik_job_description');
+  container.appendChild(flowHeader);
 
   if (onCancel) {
-    const cancelBtn = form.querySelector('.ik-cancel-btn');
+    const cancelBtn = flowHeader.querySelector('.ik-back-to-jobs');
     if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
   }
 
-  // Toggle styling on option card checkboxes
-  form.querySelectorAll('.ik-option-card').forEach(card => {
-    const cb = card.querySelector('input[type="checkbox"]');
-    cb.addEventListener('change', () => {
-      if (cb.checked) card.classList.add('ik-selected');
-      else card.classList.remove('ik-selected');
-    });
-  });
+  const engineMount = document.createElement('div');
+  engineMount.className = 'ik-step-engine-mount';
+  container.appendChild(engineMount);
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
+  const screens = [
+    // Step 1: Job Title
+    {
+      id: 'title',
+      title: pickLang('Job Title', 'የሥራው መጠሪያ', language),
+      label: pickLang('What is the title of the position? (required)', 'የሥራው መጠሪያ ምንድን ነው? (ግዴታ)', language),
+      helpText: pickLang('For example: Remote VA - Customer Support or Data Entry Assistant.', 'ለምሳሌ፡ የርቀት ደንበኞች አገልግሎት ረዳት ወይም የመረጃ ማስገቢያ ረዳት።', language),
+      placeholder: pickLang('e.g. Remote VA - Customer Support', 'ለምሳሌ፡ የርቀት ደንበኞች አገልግሎት ረዳት', language),
+      inputType: 'text',
+      voiceEnabled: true,
+      required: true,
+      validation: (val) => {
+        if (!val || !String(val).trim()) {
+          return pickLang('Please add a job title.', 'እባክዎ የስራውን መጠሪያ ያስገቡ።', language);
+        }
+        return null;
+      },
+      readAloudText: pickLang('Job Title. What is the title of the position?', 'የሥራው መጠሪያ። የሥራው መጠሪያ ምንድን ነው?', language)
+    },
 
-    // Clear previous errors
-    form.querySelectorAll('.ik-field-error').forEach(p => { p.textContent = ''; p.classList.add('ik-hidden'); });
-    form.querySelectorAll('.ik-input, .ik-textarea').forEach(inp => inp.removeAttribute('aria-invalid'));
-    const genErr = form.querySelector('#ik_form_general_err');
-    genErr.textContent = '';
-    genErr.classList.add('ik-hidden');
+    // Step 2: Employer Name
+    {
+      id: 'employer',
+      title: pickLang('Employer / Organization Name', 'የአሰሪው / የድርጅቱ ስም', language),
+      label: pickLang('What is your organization or company name? (required)', 'የድርጅትዎ ወይም የኩባንያዎ ስም ማን ይባላል? (ግዴታ)', language),
+      helpText: pickLang('This name will be displayed on the job posting for applicants.', 'ይህ ስም ለአመልካቾች በሥራ ማስታወቂያው ላይ ይታያል።', language),
+      placeholder: pickLang('e.g. Acme Logistics', 'ለምሳሌ፡ አክሜ ሎጂስቲክስ', language),
+      inputType: 'text',
+      voiceEnabled: true,
+      required: true,
+      validation: (val) => {
+        if (!val || !String(val).trim()) {
+          return pickLang('Please add the employer name.', 'እባክዎ የአሰሪውን ስም ያስገቡ።', language);
+        }
+        return null;
+      },
+      readAloudText: pickLang('Employer Name. What is your organization or company name?', 'የአሰሪው ስም። የድርጅትዎ ወይም የኩባንያዎ ስም ማን ይባላል?', language)
+    },
 
-    const title = titleInput.value.trim();
-    const employer = employerInput.value.trim();
-    const description = descInput.value.trim();
-    const selectedAccommodations = Array.from(form.querySelectorAll('input[name="accommodations"]:checked'))
-      .map(cb => cb.value);
+    // Step 3: Job Description
+    {
+      id: 'description',
+      title: pickLang('Job Description', 'የሥራው መግለጫ', language),
+      label: pickLang('Describe the responsibilities and qualifications (required):', 'ዋና ዋና ተግባራትን፣ ኃላፊነቶችን እና መመዘኛዎችን ያብራሩ (ግዴታ)፡', language),
+      helpText: pickLang('Detail the day-to-day tasks, work arrangement (e.g. remote / in-person), and training provided.', 'የዕለት ተዕለት ተግባራትን፣ የሥራውን ሁኔታ (የርቀት ወይም በአካል) እና የሚሰጠውን ስልጠና በዝርዝር ያብራሩ።', language),
+      placeholder: pickLang('Describe the responsibilities, work environment, and qualifications...', 'ዋና ዋና ተግባራትን እና ሃላፊነቶችን ያብራሩ...', language),
+      inputType: 'textarea',
+      voiceEnabled: true,
+      required: true,
+      validation: (val) => {
+        if (!val || !String(val).trim()) {
+          return pickLang('Please describe the job.', 'እባክዎ የስራውን መግለጫ ያስገቡ።', language);
+        }
+        return null;
+      },
+      readAloudText: pickLang('Job Description. Describe the responsibilities and qualifications for this role.', 'የሥራው መግለጫ። ለዚህ ሥራ የሚያስፈልጉትን ኃላፊነቶች እና መመዘኛዎች ያብራሩ።', language)
+    },
 
-    let hasClientErrors = false;
-    if (!title) {
-      const err = form.querySelector('#ik_job_title_err');
-      err.textContent = pickLang('Please add a job title.', 'እባክዎ የስራውን መጠሪያ ያስገቡ።', language);
-      err.classList.remove('ik-hidden');
-      titleInput.setAttribute('aria-invalid', 'true');
-      hasClientErrors = true;
+    // Step 4: Accommodations Provided
+    {
+      id: 'accommodations',
+      title: pickLang('Accommodations Provided by Employer', 'የሚሰጡት ድጋፎች እና አመቺ ሁኔታዎች', language),
+      label: pickLang('Select all adjustments, accessible tools, and supportive work arrangements you support.', 'ድርጅትዎ ለሰራተኞች ወይም ለአመልካቾች የሚያዘጋጃቸውን ሁሉ ይምረጡ።', language),
+      helpText: pickLang('Select all accommodations and supportive options provided by your organization.', 'ድርጅትዎ የሚያቀርባቸውን የተደራሽነት ድጋፎች ይምረጡ።', language),
+      inputType: 'checkbox',
+      required: false,
+      options: ACCOMMODATIONS.map(acc => ({
+        value: acc,
+        label: label('accommodation', acc, language),
+        icon: '♿'
+      })),
+      readAloudText: pickLang('Accommodations Provided. Select all adjustments and supportive work arrangements you support.', 'የሚሰጡት ድጋፎች። ድርጅትዎ ለሰራተኞች የሚያዘጋጃቸውን ድጋፎች ይምረጡ።', language)
     }
-    if (!employer) {
-      const err = form.querySelector('#ik_job_employer_err');
-      err.textContent = pickLang('Please add the employer name.', 'እባክዎ የአሰሪውን ስም ያስገቡ።', language);
-      err.classList.remove('ik-hidden');
-      employerInput.setAttribute('aria-invalid', 'true');
-      hasClientErrors = true;
-    }
-    if (!description) {
-      const err = form.querySelector('#ik_job_description_err');
-      err.textContent = pickLang('Please describe the job.', 'እባክዎ የስራውን መግለጫ ያስገቡ።', language);
-      err.classList.remove('ik-hidden');
-      descInput.setAttribute('aria-invalid', 'true');
-      hasClientErrors = true;
-    }
+  ];
 
-    if (hasClientErrors) return;
-
-    const submitBtn = form.querySelector('.ik-submit-job-btn');
-    submitBtn.disabled = true;
-    submitBtn.textContent = t('submitting', language);
-
-    try {
-      const created = await createJob({
-        title,
-        employer,
-        description,
-        accommodations: selectedAccommodations
-      });
-
+  const engine = new StepEngine({
+    container: engineMount,
+    screens: screens,
+    language: language,
+    isSimpleMode: isSimpleMode,
+    sessionId: 'ik_employer_session',
+    onCancel: onCancel || null,
+    onComplete: async (answers) => {
       container.innerHTML = `
-        <div class="ik-success-card" role="region" aria-live="polite">
-          <div class="ik-success-icon" aria-hidden="true">✅</div>
-          <h2 class="ik-success-title">${t('employerSuccess', language)}</h2>
-          <p class="ik-success-message">
-            <strong>${created.title}</strong> (${created.employer}) ${
-              pickLang('is now live. Job seekers can view accommodations and apply with voice or text.', 'በስኬት ተመዝግቧል። አመልካቾች አሁን ሊያዩት እና ሊያመለክቱበት ይችላሉ።', language)
-            }
-          </p>
-          <div class="ik-success-actions">
-            <button type="button" class="ik-btn ik-btn-primary ik-view-all-jobs">
-              ${pickLang('View in Job Listings', 'ወደ ስራዎች ዝርዝር ሂድ', language)}
-            </button>
-          </div>
+        <div class="ik-loading-indicator" role="status">
+          <div class="ik-spinner"></div>
+          <p>${pickLang('Publishing your inclusive job opportunity...', 'አካታች የሥራ ማስታወቂያዎን በመለጠፍ ላይ...', language)}</p>
         </div>
       `;
 
-      container.querySelector('.ik-view-all-jobs').addEventListener('click', () => {
-        if (onSuccess) onSuccess(created);
-      });
-
-    } catch (err) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = t('submit', language);
-
-      if (err.errors) {
-        Object.keys(err.errors).forEach(f => {
-          const fieldErr = form.querySelector('#ik_job_' + f + '_err');
-          if (fieldErr) {
-            fieldErr.textContent = err.errors[f];
-            fieldErr.classList.remove('ik-hidden');
-          } else {
-            genErr.textContent += (genErr.textContent ? '\n' : '') + err.errors[f];
-            genErr.classList.remove('ik-hidden');
-          }
+      try {
+        const created = await createJob({
+          title: String(answers.title || '').trim(),
+          employer: String(answers.employer || '').trim(),
+          description: String(answers.description || '').trim(),
+          accommodations: Array.isArray(answers.accommodations) ? answers.accommodations : []
         });
-      } else {
-        genErr.textContent = err.message || 'Could not post job.';
-        genErr.classList.remove('ik-hidden');
+
+        container.innerHTML = `
+          <div class="ik-success-card" role="region" aria-live="polite">
+            <div class="ik-success-icon" aria-hidden="true">✅</div>
+            <h2 class="ik-success-title">${t('employerSuccess', language)}</h2>
+            <p class="ik-success-message">
+              <strong>${created.title}</strong> (${created.employer}) ${
+                pickLang('is now live. Job seekers can view accommodations and apply with voice or text.', 'በስኬት ተመዝግቧል። አመልካቾች አሁን ሊያዩት እና ሊያመለክቱበት ይችላሉ።', language)
+              }
+            </p>
+            <div class="ik-success-actions">
+              <button type="button" class="ik-btn ik-btn-primary ik-view-all-jobs">
+                💼 ${pickLang('View in Job Listings', 'ወደ ስራዎች ዝርዝር ሂድ', language)}
+              </button>
+            </div>
+          </div>
+        `;
+
+        container.querySelector('.ik-view-all-jobs').addEventListener('click', () => {
+          if (onSuccess) onSuccess(created);
+        });
+
+      } catch (err) {
+        let errorMsg = err.message || 'Could not post job.';
+        if (err.errors) {
+          if (typeof err.errors === 'string') {
+            errorMsg = err.errors;
+          } else if (typeof err.errors === 'object') {
+            const firstErr = Object.values(err.errors)[0];
+            if (firstErr) errorMsg = firstErr;
+          }
+        }
+        container.innerHTML = `
+          <div class="ik-error-card" role="alert">
+            <p class="ik-error-msg"><strong>${pickLang('Error posting job:', 'ስራውን በመለጠፍ ላይ ስህተት ተከስቷል፡', language)}</strong> ${errorMsg}</p>
+            <button type="button" class="ik-btn ik-btn-secondary ik-retry-employer">${pickLang('Try again', 'እንደገና ሞክር', language)}</button>
+          </div>
+        `;
+        container.querySelector('.ik-retry-employer').addEventListener('click', () => {
+          renderEmployerForm(options);
+        });
       }
     }
   });
-}
 
+  engine.render();
+
+  return {
+    engine: engine,
+    destroy: () => {
+      if (engine && typeof engine.destroy === 'function') {
+        engine.destroy();
+      }
+    }
+  };
+}
