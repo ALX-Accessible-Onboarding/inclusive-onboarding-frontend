@@ -10,7 +10,7 @@ export function isVoiceSupported() {
 }
 
 export function getRecognitionLanguage(lang) {
-  if (lang === 'am') return 'am-ET';
+  if (lang && (lang === 'am' || String(lang).toLowerCase().startsWith('am'))) return 'am-ET';
   return 'en-US';
 }
 
@@ -137,10 +137,11 @@ export function startVoiceRecognition(options) {
   };
 
   recognition.onerror = function (event) {
+    if (stopped) return;
     const code = event.error || 'unknown';
-    // In continuous mode, silence and aborts are routine: the
-    // recognizer restarts from onend without bothering the caller.
-    if (continuous && (code === 'no-speech' || code === 'aborted')) return;
+    // Silence and aborts are routine cancellations or timeouts; don't report as errors
+    if (code === 'aborted') return;
+    if (continuous && code === 'no-speech') return;
     if (continuous && code !== 'not-allowed' && code !== 'language-not-supported') {
       // Recoverable: a network blip, a mic glitch, a busy service.
       // Restart with backoff and keep the microphone open; warn the
@@ -154,16 +155,15 @@ export function startVoiceRecognition(options) {
       return;
     }
     fatalError = true;
-    let msg = 'Voice recognition error: ' + code;
-    if (code === 'not-allowed') {
-      msg = 'Microphone access was denied. Please allow microphone permissions or type manually.';
-    } else if (code === 'no-speech') {
-      msg = 'No speech was detected. Please try speaking again.';
-    } else if (code === 'language-not-supported') {
-      msg = opts.language === 'am'
-        ? 'Amharic speech recognition is not supported on this device. Manual typing is available.'
-        : 'This language is not supported by your speech engine.';
-    }
+    const isAm = opts.language === 'am' || (opts.language && String(opts.language).startsWith('am'));
+    let msg = isAm ? ('የድምፅ ግብዓት ስህተት፡ ' + code) : ('Voice recognition error: ' + code);
+    const errMap = {
+      'not-allowed': isAm ? 'የማይክሮፎን ፈቃድ ተከልክሏል' : 'Microphone access denied',
+      'no-speech': isAm ? 'ምንም ድምፅ አልተሰማም' : 'No speech detected',
+      'language-not-supported': isAm ? 'ይህ ቋንቋ አይደገፍም' : 'Language not supported',
+      'network': isAm ? 'የድምፅ አገልግሎቱን ማግኘት አልተቻለም' : 'Speech recognition offline'
+    };
+    if (errMap[code]) msg = errMap[code] + (isAm ? '። በእጅ መጻፍ ይችላሉ።' : '. Manual typing is available.');
     if (opts.onError) opts.onError(msg, code);
   };
 

@@ -1,7 +1,2 @@
 @import './styles/ik-components.css';
-
-/* Accessible base tokens and high-contrast settings */
-#inclusive-kit,
-#inclusive-kit-mount {
-  min-height: 200px;
-}
+#inclusive-kit,#inclusive-kit-mount{min-height:200px}

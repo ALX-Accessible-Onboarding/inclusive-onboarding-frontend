@@ -1,3 +1,4 @@
+export const isAmharic = (l) => Boolean(l && String(l).startsWith('am'));
 import { SUPPORT_NEEDS, ACCOMMODATIONS } from './vocabulary.js';
 
 // DRAFT Amharic: reviewed and expanded for language and speech consistency
@@ -40,6 +41,12 @@ export const UI_STRINGS = {
   submitting: { en: 'Submitting...', am: 'በማስገባት ላይ...' },
   close: { en: 'Close', am: 'ዝጋ' },
   apply: { en: 'Apply Now', am: 'አሁን ያመልክቱ' },
+  errorPrefix: { en: 'Error: ', am: 'ስህተት፡ ' },
+  disabledReasonFirstPage: { en: 'Already on first page', am: 'የመጀመሪያው ገጽ ላይ ነዎት' },
+  disabledReasonLastPage: { en: 'Already on last page', am: 'የመጨረሻው ገጽ ላይ ነዎት' },
+  disabledReasonVoiceStop: { en: 'No active speech or listening to stop', am: 'የሚቆም ንግግር ወይም ማዳመጥ የለም' },
+  toggleOn: { en: '[ON]', am: '[በርቷል]' },
+  toggleOff: { en: '[OFF]', am: '[ጠፍቷል]' },
   readAloud: { en: 'Read to me', am: 'ጮክ ብሎ አንብብልኝ' },
   speakToMe: { en: 'Speak to me', am: 'ጮክ ብለህ አንብብልኝ' },
   stopReading: { en: 'Stop reading', am: 'ማንበብ አቁም' },
@@ -65,8 +72,7 @@ export const UI_STRINGS = {
   description: { en: 'Description:', am: 'የሥራው ዝርዝር፡' },
   workFromHome: { en: 'Work from home (Remote).', am: 'ሥራው ከቤት የሚሰራ ነው (የርቀት ሥራ)።' },
   trainingProvided: { en: 'Training is provided.', am: 'ስልጠና ይሰጣል።' },
-  // Voice assistant strings (DRAFT Amharic: needs native-speaker review, as
-  // with the other Amharic strings in this file).
+  // Voice assistant strings
   voiceReadPage: { en: 'Read this page', am: 'ይህን ገጽ አንብብልኝ' },
   voiceStop: { en: 'Stop voice', am: 'ድምፅ አቁም' },
   voiceCommands: { en: 'Voice commands', am: 'የድምፅ ትዕዛዞች' },
@@ -77,24 +83,7 @@ export const UI_STRINGS = {
   voiceConsentOnce: { en: 'Allow this once', am: 'ለዚህ ጊዜ ብቻ ፍቀድ' },
   voiceConsentDecline: { en: 'Not now', am: 'አሁን አይደለም' },
   voiceDeclined: { en: 'Amharic voice is off. You can still read on screen.', am: 'የአማርኛ ድምፅ ጠፍቷል። በማያ ገጹ ላይ ማንበብ ይችላሉ።' },
-  voiceUnavailable: { en: 'Voice is not available on this device. You can still use the keyboard and type.', am: 'ድምፅ በዚህ መሣሪያ ላይ አይገኝም። ኪቦርዱን ተጠቅመው መጻፍ ይችላሉ።' },
-  voiceServiceUnavailable: { en: 'The Amharic voice service is not available here. If you are testing locally, run the app with Vercel dev.', am: 'የአማርኛ ድምፅ አገልግሎት እዚህ አይገኝም። በአካባቢ እየሞከሩ ከሆነ፣ መተግበሪያውን በVercel dev ያሂዱ።' },
-  voiceNotConfigured: { en: 'The Amharic voice service is not set up yet. The server has no API key.', am: 'የአማርኛ ድምፅ አገልግሎት ገና አልተዘጋጀም። በአገልጋዩ ላይ API ቁልፍ የለም።' },
-  voiceError: { en: 'Sorry, the voice service could not speak that. Please try again.', am: 'ይቅርታ፣ የድምፅ አገልግሎቱ ይህን ማንበብ አልቻለም። እባክዎ እንደገና ይሞክሩ።' },
-  voiceStopped: { en: 'Voice stopped.', am: 'ድምፁ ቆምቷል።' },
-  voiceNothingToRead: { en: 'There is nothing to read on this page yet.', am: 'በዚህ ገጽ ላይ የሚነበብ ነገር ገና የለም።' },
-  voiceHelp: { en: 'You can say: read page, stop, help, career, profile, onboarding, or post a job.', am: 'እነዚህን መናገር ይችላሉ፡ ገጹን አንብብ፣ አቁም፣ እርዳታ፣ የሥራ እድሎች፣ መገለጫ፣ ምዝገባ፣ ወይም ሥራ ይለጥፉ።' },
-  voiceUnknownCommand: { en: 'I did not understand that. Say help for what you can say.', am: 'ይህን አልተረዳሁም። ምን መናገር እንደሚችሉ ለማወቅ እርዳታ ይበሉ።' },
-  voiceCommandError: { en: 'Voice commands did not work. Please use the keyboard or type instead.', am: 'የድምፅ ትዕዛዞች አልሰሩም። እባክዎ ኪቦርዱን ይጠቀሙ ወይም ይጻፉ።' },
-  voiceNoMicrophone: { en: 'Microphone access was denied. Voice commands need microphone permission, or you can type instead.', am: 'የማይክሮፎን ፈቃድ ተከልክሏል። የድምፅ ትዕዛዞች የማይክሮፎን ፈቃድ ያስፈልጋቸዋል፣ ወይም መጻፍ ይችላሉ።' },
-  // Voice guide strings (DRAFT Amharic: needs native-speaker review, as
-  // with the other Amharic strings in this file). The guide greets the
-  // user automatically and walks the onboarding screens by voice, so
-  // these strings are spoken, never only shown on screen.
-  guideGreeting: { en: 'Welcome to Savanna Accessible Learning.', am: 'እንኳን ወደ ሳቫና ተደራሽ የመማሪያ መድረክ በደህና መጡ።' },
-  guideGreetingFollow: { en: 'I will guide you through registration by voice, from your name until you finish.', am: 'ከስምዎ ጀምሮ እስከ ምዝገባው መጨረሻ ድረስ በድምፅ እመራዎታለሁ።' },
-  guideMicPrompt: { en: 'To answer by voice, please allow microphone access when your browser asks.', am: 'በድምፅ ለመመለስ፣ አሳሽዎ ሲጠይቅ የማይክሮፎን ፈቃድ ይስጡ።' },
-  guideMicDenied: { en: 'Microphone access was blocked, so the voice guide is off. You can still use the keyboard and the buttons.', am: 'የማይክሮፎን ፈቃድ ተከልክሏል፣ ስለዚህ የድምፅ መመሪያው ጠፍቷል። ኪቦርዱን እና ቁልፎቹን መጠቀም ይችላሉ።' },
+  voiceUnavailable: { en: 'Voice service unavailable. You can still read on screen.', am: 'የድምፅ አገልግሎቱ አልተገኘም። በማያ ገጹ ላይ ማንበብ ይችላሉ።' },
   guideMicUnavailable: { en: 'Voice input is not available in this browser, so the voice guide is off. You can still use the keyboard and the buttons.', am: 'የድምፅ ግብአት በዚህ አሳሽ ላይ አይገኝም፣ ስለዚህ የድምፅ መመሪያው ጠፍቷል። ኪቦርዱን እና ቁልፎቹን መጠቀም ይችላሉ።' },
   guideSayAnswer: { en: 'Please say your answer.', am: 'እባክዎ መልስዎን ይበሉ።' },
   guideChooseOptions: { en: 'Say the number of your choice.', am: 'የምርጫዎን ቁጥር ይበሉ።' },
@@ -118,7 +107,15 @@ export const UI_STRINGS = {
   guideGiveUp: { en: 'I could not hear a clear answer. The voice guide is off, but you can still type or use the buttons.', am: 'ግልጽ መልስ መስማት አልቻልኩም። የድምፅ መመሪያው ጠፍቷል፣ ግን መጻፍ ወይም ቁልፎቹን መጠቀም ይችላሉ።' },
   guideRetryPrompt: { en: 'Say retry to try again, or stop to end the voice guide.', am: 'እንደገና ለመሞከር እንደገና ሞክር ይበሉ፣ ለማቆም አቁም ይበሉ።' },
   guideStillWorking: { en: 'Registration is still being processed. Please wait a little longer.', am: 'ምዝገባው አሁንም በመካሄድ ላይ ነው። እባክዎ ትንሽ ይጠብቁ።' },
-  guideLanguagePrompt: { en: 'Choose your language. Say 1 for English, 2 for English simple with icons, 3 for Amharic, 4 for Amharic simple with icons. Or just say English or Amharic.', am: 'ቋንቋዎን ይምረጡ። እንግሊዝኛ ከፈለጉ 1 ይበሉ፣ ቀላል እንግሊዝኛ ከፈለጉ 2 ይበሉ፣ አማርኛ ከፈለጉ 3 ይበሉ፣ ቀላል አማርኛ ከፈለጉ 4 ይበሉ። ወይም እንግሊዝኛ ወይም አማርኛ ብለው መናገር ይችላሉ።' }
+  guideLanguagePrompt: { en: 'Choose your language. Say 1 for English, 2 for English simple with icons, 3 for Amharic, 4 for Amharic simple with icons. Or just say English or Amharic.', am: 'ቋንቋዎን ይምረጡ። እንግሊዝኛ ከፈለጉ 1 ይበሉ፣ ቀላል እንግሊዝኛ ከፈለጉ 2 ይበሉ፣ አማርኛ ከፈለጉ 3 ይበሉ፣ ቀላል አማርኛ ከፈለጉ 4 ይበሉ። ወይም እንግሊዝኛ ወይም አማርኛ ብለው መናገር ይችላሉ።' },
+  // Phase 2: Low Internet, Offline & Resilience strings
+  serverWaking: { en: 'The server is waking up, please wait...', am: 'አገልጋዩ እየተነሳ ነው፣ እባክዎ ይጠብቁ...' },
+  timeoutError: { en: 'The connection timed out. Please check your network and try again.', am: 'የግንኙነት ጊዜ አልቋል። እባክዎ ኢንተርኔትዎን ይፈትሹና እንደገና ይሞክሩ።' },
+  networkError: { en: 'We could not reach the server. Please check your connection and try again.', am: 'አገልጋዩን ማግኘት አልተቻለም። እባክዎ ግንኙነትዎን ይፈትሹ እና እንደገና ይሞክሩ።' },
+  showingSavedJobs: { en: 'Showing saved jobs from', am: 'ከተቀመጠው ጊዜ የተገኙ ስራዎች፡' },
+  offlineNotice: { en: 'You are offline', am: 'ከመስመር ውጭ ነዎት' },
+  connectionRestored: { en: 'Internet connection restored.', am: 'የኢንተርኔት ግንኙነት ተመልሷል።' },
+  tryAgain: { en: 'Try again', am: 'እንደገና ሞክር' }
 };
 
 // Full translations for default jobs to guarantee Amharic text and speech consistency
@@ -158,40 +155,12 @@ export const JOB_TRANSLATIONS = {
 };
 
 /**
- * Returns localized job fields (title, employer, description) for the target language.
+ * Translation dictionary mapping English phrases to Amharic equivalents
  */
-export function getLocalizedJob(job, lang = 'en') {
-  if (!job) return job;
-  const isAm = lang === 'am' || (typeof lang === 'string' && lang.toLowerCase().startsWith('am'));
-  const translation = JOB_TRANSLATIONS[job.id];
-
-  const title = (translation && translation.title && (isAm ? translation.title.am : translation.title.en))
-    || (isAm && job.title_am)
-    || job.title;
-
-  const employer = (translation && translation.employer && (isAm ? translation.employer.am : translation.employer.en))
-    || (isAm && job.employer_am)
-    || job.employer;
-
-  const description = (translation && translation.description && (isAm ? translation.description.am : translation.description.en))
-    || (isAm && job.description_am)
-    || job.description;
-
-  return Object.assign({}, job, {
-    title: title,
-    employer: employer,
-    description: description
-  });
-}
-
-// Fallback phrase dictionary to translate text if an English string is passed for Amharic speech
 export const TRANSLATION_MAP = {
   'welcome to savanna accessible learning': 'እንኳን ወደ ሳቫና ተደራሽ የመማሪያ መድረክ በደህና መጡ',
-  'please choose how you would like to proceed': 'እባክዎ እንዴት መቀጠል እንደሚፈልጉ ይምረጡ',
   'what should we call you': 'ምን ብለን እንጥራዎት',
-  'your name or nickname': 'የእርስዎ ስም ወይም ቅጽል ስም',
   'how can we reach you': 'እንዴት እናገኝዎት',
-  'phone number or email address': 'የስልክ ቁጥር ወይም የኢሜይል አድራሻ',
   'identification document route': 'የመታወቂያ ሰነድ መንገድ',
   'enter your id document number': 'የመታወቂያ ሰነድ ቁጥርዎን ያስገቡ',
   'support you need': 'የሚያስፈልግዎት ድጋፍ',
@@ -201,19 +170,33 @@ export const TRANSLATION_MAP = {
   'speak instead of typing': 'ከመጻፍ ይልቅ በድምፅ መናገር',
   'more time': 'ተጨማሪ ጊዜ',
   'sign language': 'የምልክት ቋንቋ',
-  'remote va - customer support': 'የርቀት ደንበኞች አገልግሎት ረዳት',
-  'data entry assistant': 'የመረጃ ማስገቢያ ረዳት',
-  'community outreach assistant': 'የማህበረሰብ ተደራሽነት ረዳት',
-  'content reviewer': 'የይዘት ገምጋሚ',
-  'acme logistics': 'አክሜ ሎጂስቲክስ',
-  'blue nile services': 'ብሉ ናይል ሰርቪስስ',
-  'addis community trust': 'አዲስ ኮሚዩኒቲ ትረስት',
-  'sunrise media': 'ሰንራይዝ ሚዲያ',
   'training is provided': 'ስልጠና ይሰጣል',
   'work from home': 'ሥራው ከቤት የሚሰራ ነው',
   'accommodations provided': 'የተዘጋጁ ድጋፎች',
   'description': 'የሥራው ዝርዝር'
 };
+
+Object.values(JOB_TRANSLATIONS).forEach(j => {
+  if (j.title && j.title.en && j.title.am) TRANSLATION_MAP[j.title.en.toLowerCase()] = j.title.am;
+  if (j.employer && j.employer.en && j.employer.am) TRANSLATION_MAP[j.employer.en.toLowerCase()] = j.employer.am;
+});
+
+/**
+ * Returns localized job object with translated fields if language is Amharic.
+ */
+export function getLocalizedJob(job, lang = 'en') {
+  if (!job) return {};
+  if (lang !== 'am' && !(typeof lang === 'string' && lang.startsWith('am'))) {
+    return job;
+  }
+  const trans = JOB_TRANSLATIONS[job.id];
+  return {
+    ...job,
+    title: (trans && trans.title && trans.title.am) || translateToAmharic(job.title),
+    employer: (trans && trans.employer && trans.employer.am) || translateToAmharic(job.employer),
+    description: (trans && trans.description && trans.description.am) || translateToAmharic(job.description)
+  };
+}
 
 /**
  * Auto-translates English phrase to Amharic if target language is Amharic.
@@ -245,6 +228,9 @@ export function t(key, lang) {
   const code = lang || 'en';
   if (UI_STRINGS[key]) {
     return UI_STRINGS[key][code] || UI_STRINGS[key].en;
+  }
+  if (LABELS.support && LABELS.support[key]) {
+    return LABELS.support[key][code] || LABELS.support[key].en;
   }
   return key;
 }

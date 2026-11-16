@@ -13,10 +13,8 @@ async function attempt(title, fn) {
 }
 
 (async function run() {
-  if (live) {
-    api.configure({ mode: 'live', baseUrl: 'http://localhost:4000/api', token: 'demo-token' });
-  }
-  log('Mode', live ? 'LIVE (real backend)' : 'MOCK');
+  api.configure({ mode: live ? 'live' : 'mock' });
+  log('Mode', api.getMode());
   log('Missing labels (should be [])', missingLabels());
   log('Amharic label for read_aloud', label('support', 'read_aloud', 'am'));
 

@@ -2,6 +2,19 @@ import { saveProgress } from '../api-client.js';
 
 const STORAGE_PREFIX = 'ik_progress_';
 
+export function sanitizeDraftAnswers(answers) {
+  if (!answers || typeof answers !== 'object') return {};
+  const clean = Object.assign({}, answers);
+  // Strictly omit all private fields (supportNeeds, idNumber, privateNotes)
+  delete clean.supportNeeds;
+  delete clean.support_needs;
+  delete clean.idNumber;
+  delete clean.id_number;
+  delete clean.privateNotes;
+  delete clean.private_notes;
+  return clean;
+}
+
 export class ProgressStore {
   constructor(sessionId = 'default') {
     this.sessionId = sessionId;
@@ -11,7 +24,12 @@ export class ProgressStore {
   getLocal() {
     try {
       const raw = localStorage.getItem(STORAGE_PREFIX + this.sessionId);
-      return raw ? JSON.parse(raw) : null;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.answers) {
+        parsed.answers = sanitizeDraftAnswers(parsed.answers);
+      }
+      return parsed;
     } catch (e) {
       return null;
     }
@@ -19,7 +37,11 @@ export class ProgressStore {
 
   saveLocal(data) {
     try {
-      localStorage.setItem(STORAGE_PREFIX + this.sessionId, JSON.stringify(data));
+      const sanitized = Object.assign({}, data);
+      if (sanitized.answers) {
+        sanitized.answers = sanitizeDraftAnswers(sanitized.answers);
+      }
+      localStorage.setItem(STORAGE_PREFIX + this.sessionId, JSON.stringify(sanitized));
     } catch (e) {}
   }
 
@@ -39,7 +61,7 @@ export class ProgressStore {
         saveProgress({
           sessionId: this.sessionId,
           step: data.stepIndex || 0,
-          answers: data.answers || {}
+          answers: sanitizeDraftAnswers(data.answers || {})
         }).catch(() => {
           // Silent catch: network failure shouldn't disrupt the user
         });
@@ -47,4 +69,3 @@ export class ProgressStore {
     }, 1000);
   }
 }
-

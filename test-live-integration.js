@@ -1,6 +1,6 @@
 import * as api from './src/api-client.js';
 
-const LIVE_BACKEND_URL = 'https://inclusive-onboarding-backend.onrender.com/api';
+const LIVE_BACKEND_URL = 'https://inclusive-onboarding-backend.onrender.com/api/v1';
 
 async function runLiveIntegrationTest() {
   console.log('====================================================');

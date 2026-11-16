@@ -6,7 +6,8 @@ import { createJobPostingJsonLd } from './src/career/jobposting-jsonld.js';
 import { detectLanguage } from './src/features/read-aloud.js';
 import { getLocalizedJob, translateToAmharic } from './src/labels.js';
 import { validateContact, validateName, validateIdNumber } from './src/core/validation.js';
-
+import { configure } from './src/api-client.js';
+configure({ mode: 'mock' });
 async function runTests() {
   api.configure({ mode: 'mock' });
   console.log('--- Testing Dev 2 Features ---');

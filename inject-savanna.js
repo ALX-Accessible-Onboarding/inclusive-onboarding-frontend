@@ -29,7 +29,7 @@ const mountAndScript = `
             e.preventDefault();
             if (window.InclusiveKit) {
               window.InclusiveKit.openModal({
-                apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api',
+                apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api/v1',
                 mode: 'live',
                 initialView: 'onboarding',
                 language: 'en',

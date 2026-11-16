@@ -1,5 +1,5 @@
 import { QuestionScreen } from './question-screen.js';
-import { ProgressStore } from './progress-store.js';
+import { ProgressStore, sanitizeDraftAnswers } from './progress-store.js';
 import { speak, isSpeaking, stopSpeaking } from '../features/read-aloud.js';
 import { translateToAmharic } from '../labels.js';
 
@@ -39,8 +39,9 @@ export class StepEngine {
   }
 
   saveDraft() {
+    const cleanAnswers = sanitizeDraftAnswers(this.answers);
     const draftPayload = {
-      answers: this.answers,
+      answers: cleanAnswers,
       stepIndex: this.currentStep,
       sessionId: this.sessionId,
       timestamp: Date.now()
@@ -50,7 +51,7 @@ export class StepEngine {
     }
     this.progressStore.save({
       stepIndex: this.currentStep,
-      answers: this.answers
+      answers: cleanAnswers
     });
   }
 
@@ -159,6 +160,10 @@ export class StepEngine {
       });
     }
 
+    if (this.activeScreenComponent && typeof this.activeScreenComponent.destroy === 'function') {
+      this.activeScreenComponent.destroy();
+    }
+
     this.activeScreenComponent = new QuestionScreen({
       ...dynamicConfig,
       language: this.language,
@@ -252,6 +257,9 @@ export class StepEngine {
 
   destroy() {
     stopSpeaking();
+    if (this.activeScreenComponent && typeof this.activeScreenComponent.destroy === 'function') {
+      this.activeScreenComponent.destroy();
+    }
     if (this.container) this.container.innerHTML = '';
   }
 }

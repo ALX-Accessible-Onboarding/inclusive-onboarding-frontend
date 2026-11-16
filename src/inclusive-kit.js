@@ -12,8 +12,6 @@ import * as vocabulary from './vocabulary.js';
 import * as labels from './labels.js';
 import * as readAloud from './features/read-aloud.js';
 import * as voiceInput from './features/voice-input.js';
-import * as voiceAssistant from './features/voice-assistant.js';
-import * as voiceGuide from './features/voice-guide.js';
 import * as jobFilter from './career/job-filter.js';
 import * as jobPostingJsonLd from './career/jobposting-jsonld.js';
 import { CareerGateway } from './career/job-list.js';
@@ -30,8 +28,6 @@ export {
   labels,
   readAloud,
   voiceInput,
-  voiceAssistant,
-  voiceGuide,
   jobFilter,
   jobPostingJsonLd,
   CareerGateway,

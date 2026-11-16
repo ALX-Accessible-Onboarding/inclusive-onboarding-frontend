@@ -1,22 +1,27 @@
+import { VoiceAssistant } from './features/voice-assistant.js';
 import { configure } from './api-client.js';
 import { startOnboardingFlow } from './flows/onboarding.js';
 import { LearnerProfile } from './flows/profile.js';
 import { CareerGateway } from './career/job-list.js';
 import { renderEmployerForm } from './flows/employer-form.js';
 import { t } from './labels.js';
-import { getLearnerId, saveLearnerId, clearLearnerId } from './core/learner-session.js';
+import { getLearnerId } from './core/learner-session.js';
 import { stopSpeaking, configureVoice } from './features/read-aloud.js';
-import { VoiceAssistant } from './features/voice-assistant.js';
 
 let activeInstance = null; // the kit on the page
-let modalInstance = null;  // the kit inside the modal (separate, so opening the modal never destroys the page one)
+let modalInstance = null;  // the kit inside the modal
+
+export function isLowDataMode() {
+  if (typeof navigator === 'undefined') return false;
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!conn) return false;
+  return Boolean(conn.saveData || (conn.effectiveType && conn.effectiveType.includes('2g')));
+}
 
 function stopSpeech() {
-  // Single speech-stop path: local SpeechSynthesis AND remote Gemini audio.
   stopSpeaking();
 }
 
-// Icon (hidden from screen readers) + text. Uses textContent, never innerHTML.
 function setIconLabel(button, icon, text, textLang) {
   const iconSpan = document.createElement('span');
   iconSpan.setAttribute('aria-hidden', 'true');
@@ -34,15 +39,15 @@ export class InclusiveKitInstance {
   constructor(options) {
     this.options = Object.assign({
       element: null,
-      apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api',
-      mode: 'live',          // 'mock' (fake data) or 'live' (real backend)
+      apiBaseUrl: 'https://inclusive-onboarding-backend.onrender.com/api/v1',
+      mode: 'live',
       token: 'demo-token',
       language: 'en',
       theme: 'default',
-      initialView: 'career', // 'onboarding' | 'profile' | 'career' | 'employer'
+      initialView: 'career',
       learnerId: 'lrn_demo',
-      voiceApiUrl: '/api/voice/speak', // Gemini TTS endpoint (same origin on Vercel; absolute https URL for cross-origin embeds)
-      autoVoiceGuide: true // greet automatically and offer the hands-free voice guide on first load; the modal always disables it
+      voiceApiUrl: '/api/voice/speak',
+      autoVoiceGuide: false
     }, options);
 
     this.targetElement = typeof this.options.element === 'string'
@@ -82,15 +87,15 @@ export class InclusiveKitInstance {
       getView: function () { return self.currentView; },
       getRoot: function () { return self.root; }
     });
-
     this.render();
-    if (this.options.autoVoiceGuide !== false && this.voiceAssistant) {
+    if (this.options.autoVoiceGuide && this.voiceAssistant) {
       this.voiceAssistant.maybeAutoStartGuide();
     }
   }
 
   setLanguage(lang) {
     this.language = lang;
+    if (this.voiceAssistant) this.voiceAssistant.cancelPending();
     this.render();
     this.focusControl('.ik-lang-toggle');
   }
@@ -103,19 +108,15 @@ export class InclusiveKitInstance {
     if (this.voiceAssistant) this.voiceAssistant.onViewChanged(viewName);
   }
 
-  // Restart the hands-free voice guide (greeting + guided onboarding).
-  // Returns false when a guide is already running.
   startVoiceGuide() {
     return this.voiceAssistant ? this.voiceAssistant.startGuide() : false;
   }
 
-  // render() rebuilds the buttons, so put focus back where the keyboard user was
   focusControl(selector) {
     const control = this.root && this.root.querySelector(selector);
     if (control) control.focus();
   }
 
-  // After a view change, move focus to the new heading so screen readers announce it
   focusContentHeading() {
     const heading = this.contentContainer && this.contentContainer.querySelector('h1, h2');
     if (heading) {
@@ -139,10 +140,27 @@ export class InclusiveKitInstance {
 
     const root = document.createElement('div');
     root.className = 'ik-root';
-    root.setAttribute('lang', this.language); // the kit's language only; the host page is never touched
+    if (isLowDataMode()) {
+      root.classList.add('ik-save-data');
+    }
+    root.setAttribute('lang', this.language);
     this.root = root;
 
-    // Plain div (no banner role): the host page already has its own landmarks
+    // Render server wake-up notification banner (visible when backend cold starts)
+    const serverStatusBanner = document.createElement('div');
+    serverStatusBanner.className = 'ik-server-status ik-hidden';
+    serverStatusBanner.setAttribute('role', 'status');
+    serverStatusBanner.setAttribute('aria-live', 'polite');
+    root.appendChild(serverStatusBanner);
+
+    // Live status region for screen-reader announcements
+    const liveStatus = document.createElement('div');
+    liveStatus.className = 'ik-live-status ik-sr-only';
+    liveStatus.setAttribute('role', 'status');
+    liveStatus.setAttribute('aria-live', 'polite');
+    root.appendChild(liveStatus);
+
+    // Top Navigation Bar
     const navBar = document.createElement('div');
     navBar.className = 'ik-top-nav';
 
@@ -172,8 +190,7 @@ export class InclusiveKitInstance {
     const actions = document.createElement('div');
     actions.className = 'ik-nav-actions';
 
-    // Language toggle: shows the language you will switch TO, written in that language.
-    // No aria-label, so the accessible name matches the visible text.
+    // Language toggle
     const targetLang = this.language === 'am' ? 'en' : 'am';
     const langBtn = document.createElement('button');
     langBtn.type = 'button';
@@ -182,12 +199,13 @@ export class InclusiveKitInstance {
     langBtn.addEventListener('click', () => this.setLanguage(targetLang));
     actions.appendChild(langBtn);
 
-    // Mode toggle: one stable label, state is announced through aria-pressed
+    // Mode toggle with visible text cue
     const modeBtn = document.createElement('button');
     modeBtn.type = 'button';
     modeBtn.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-mode-toggle' + (this.isSimpleMode ? ' ik-active' : '');
     modeBtn.setAttribute('aria-pressed', this.isSimpleMode ? 'true' : 'false');
-    setIconLabel(modeBtn, '🖼️', t('mode_label', this.language));
+    const modeText = t('mode_label', this.language) + ' ' + (this.isSimpleMode ? t('toggleOn', this.language) : t('toggleOff', this.language));
+    setIconLabel(modeBtn, '🖼️', modeText);
     modeBtn.addEventListener('click', () => {
       this.isSimpleMode = !this.isSimpleMode;
       this.render();
@@ -203,7 +221,6 @@ export class InclusiveKitInstance {
     navBar.appendChild(actions);
     root.appendChild(navBar);
 
-    // Plain div (no <main>): the host page already has one
     const content = document.createElement('div');
     content.className = 'ik-view-content';
     this.contentContainer = content;
@@ -276,9 +293,10 @@ export class InclusiveKitInstance {
       });
 
     } else if (this.currentView === 'employer') {
-      renderEmployerForm({
+      this.activeChild = renderEmployerForm({
         container: this.contentContainer,
         language: this.language,
+        isSimpleMode: this.isSimpleMode,
         onSuccess: () => this.setView('career'),
         onCancel: () => this.setView('career')
       });
@@ -296,7 +314,6 @@ export class InclusiveKitInstance {
   }
 }
 
-/** Task A3: entrypoint */
 export function mount(options) {
   if (activeInstance) activeInstance.destroy();
   activeInstance = new InclusiveKitInstance(options);
@@ -310,12 +327,8 @@ export function unmount() {
   }
 }
 
-/**
- * Modal embed using the native <dialog> element: it traps focus, closes with Esc,
- * makes the page behind it inert, and we return focus to the opener on close.
- */
 export function openModal(options = {}) {
-  if (document.querySelector('dialog.ik-modal-dialog')) return modalInstance; // already open
+  if (document.querySelector('dialog.ik-modal-dialog')) return modalInstance;
 
   const page = activeInstance;
   const lang = options.language || (page && page.language) || 'en';
@@ -348,7 +361,6 @@ export function openModal(options = {}) {
 
   let instance = null;
 
-  // 'close' fires for Esc, the close button and backdrop clicks, so cleanup happens once, here
   dialog.addEventListener('close', function () {
     if (instance) instance.destroy();
     if (modalInstance === instance) modalInstance = null;
@@ -357,19 +369,17 @@ export function openModal(options = {}) {
   });
   closeBtn.addEventListener('click', function () { dialog.close(); });
   dialog.addEventListener('click', function (e) {
-    if (e.target === dialog) dialog.close(); // click on the dimmed backdrop
+    if (e.target === dialog) dialog.close();
   });
 
   document.body.appendChild(dialog);
   dialog.showModal();
 
-  // Inherit mode, token and API address from the page instance
   instance = new InclusiveKitInstance(Object.assign({}, page ? page.options : {}, {
     element: body,
     initialView: options.initialView || 'career',
     language: lang,
-    learnerId: options.learnerId || (page && page.learnerId) || 'lrn_demo',
-    autoVoiceGuide: false // the modal never auto-greets: only one guide may run per page
+    learnerId: options.learnerId || (page && page.learnerId) || 'lrn_demo'
   }));
   modalInstance = instance;
   return instance;

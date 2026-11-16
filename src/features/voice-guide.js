@@ -148,9 +148,18 @@ const OPTION_STOPWORDS = [
 ];
 
 function optionWords(label) {
-  return normalizeTranscript(label).split(' ').filter(function (word) {
+  const words = normalizeTranscript(label).split(' ').filter(function (word) {
     return word.length >= 2 && OPTION_STOPWORDS.indexOf(word) === -1;
   });
+  const expanded = [];
+  words.forEach(function (word) {
+    expanded.push(word);
+    // Strip common Amharic prefixes: የ (of), በ (by/in), ለ (for), ከ (from)
+    if ((word.startsWith('የ') || word.startsWith('በ') || word.startsWith('ለ') || word.startsWith('ከ')) && word.length > 2) {
+      expanded.push(word.slice(1));
+    }
+  });
+  return expanded;
 }
 
 // Match a spoken answer to one option by its label words ("passport",
@@ -168,6 +177,12 @@ export function matchOptionByWords(transcript, options) {
   LANGUAGE_ALIASES.forEach(function (pair) {
     if (text.indexOf(' ' + pair[0] + ' ') !== -1) text += pair[1] + ' ';
     if (text.indexOf(' ' + pair[1] + ' ') !== -1) text += pair[0] + ' ';
+  });
+  // Also expand stems in spoken text so 'የቀበሌ' and 'ቀበሌ' match either way
+  normalizeTranscript(transcript).split(' ').forEach(function (w) {
+    if ((w.startsWith('የ') || w.startsWith('በ') || w.startsWith('ለ') || w.startsWith('ከ')) && w.length > 2) {
+      text += w.slice(1) + ' ';
+    }
   });
   let bestIndex = null;
   let bestScore = 0;

@@ -319,6 +319,7 @@ export class VoiceAssistant {
     // Set directly: renderControls runs before the nav is attached to the
     // root, so updateControls() cannot find the button yet.
     stopBtn.disabled = !isSpeaking() && !this.listening;
+    stopBtn.title = stopBtn.disabled ? t('disabledReasonVoiceStop', lang) : '';
     stopBtn.addEventListener('click', function () { self.stopAll(true); });
     actionsEl.appendChild(stopBtn);
 
@@ -345,7 +346,10 @@ export class VoiceAssistant {
     const readBtn = root.querySelector('.ik-voice-read-btn');
     if (readBtn) readBtn.classList.toggle('ik-speaking', speaking);
     const stopBtn = root.querySelector('.ik-voice-stop-btn');
-    if (stopBtn) stopBtn.disabled = !speaking && !this.listening && !(this.guide && this.guide.isActive());
+    if (stopBtn) {
+      stopBtn.disabled = !speaking && !this.listening && !(this.guide && this.guide.isActive());
+      stopBtn.title = stopBtn.disabled ? t('disabledReasonVoiceStop', this.lang()) : '';
+    }
     const micBtn = root.querySelector('.ik-voice-command-btn');
     if (micBtn) {
       micBtn.classList.toggle('ik-listening', this.listening);

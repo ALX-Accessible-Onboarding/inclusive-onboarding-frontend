@@ -1,72 +1,87 @@
 import { StepEngine } from '../core/step-engine.js';
 import { createLearner, saveSupport, createReferral, checkLearnerExists } from '../api-client.js';
 import { validateName, validateContact, validateIdNumber } from '../core/validation.js';
-import { SUPPORT_NEEDS, ID_ROUTES } from '../vocabulary.js';
+import { sanitizeDraftAnswers } from '../core/progress-store.js';
+import { SUPPORT_NEEDS } from '../vocabulary.js';
 import { label, t } from '../labels.js';
 import { saveLearnerId } from '../core/learner-session.js';
+import { h, btn } from '../core/dom.js';
 
-/**
- * Builds the screens B1 to B10 configuration for the onboarding flow
- * localized dynamically for English or Amharic.
- */
+const NEED_ICONS = { read_aloud: '🔊', larger_text: '🔍', voice_input: '🎤', more_time: '⏱️', sign_language: '🤟', other: '✨' };
+
 export function getOnboardingScreens(lang = 'en', onAlreadyRegistered = null) {
   const isAm = lang === 'am' || (typeof lang === 'string' && lang.startsWith('am'));
+  const L = (en, am) => isAm ? am : en;
+
+  const idOptions = [
+    { value: 'kebele', icon: '🪪', label: L('Kebele ID Card', 'የቀበሌ መታወቂያ') },
+    { value: 'passport', icon: '🛂', label: L('Passport', 'ፓስፖርት') },
+    { value: 'refugee', icon: '📄', label: L('Refugee ID / UNHCR', 'የስደተኞች መታወቂያ') },
+    { value: 'other_document', icon: '📋', label: L('Other Document', 'ሌላ ሰነድ') },
+    { value: 'referral', icon: '🤝', label: L('Partner Referral (No ID)', 'የአጋር ድርጅት ማረጋገጫ (መታወቂያ የለኝም)') }
+  ];
+
+  const partnerOptions = [
+    { value: 'aaapd', icon: '🏢', label: L('AAAPD (Disability Assoc.)', 'የአካል ጉዳተኞች ማህበር (AAAPD)') },
+    { value: 'ena', icon: '🤝', label: L('Ethiopian Blind/Deaf Assoc.', 'የኢትዮጵያ ዓይነ ስውራን/መስማት የተሳናቸው ማህበር') },
+    { value: 'unhcr', icon: '🌐', label: L('UNHCR / Refugee Partner', 'UNHCR / የስደተኞች አጋር') },
+    { value: 'other_partner', icon: '📍', label: L('Other Community Partner', 'ሌላ የማህበረሰብ አጋር') }
+  ];
+
+  const goalOptions = [
+    { value: 'virtual_assistant', icon: '💻', label: L('Virtual Assistant & Remote Work', 'የርቀት ደንበኞች አገልግሎት ረዳት (VA)') },
+    { value: 'tech_skills', icon: '🚀', label: L('Digital & Tech Skills', 'ዲጂታል እና የቴክኖሎጂ ክህሎቶች') },
+    { value: 'career_jobs', icon: '💼', label: L('Find an Inclusive Job', 'ተደራሽ የሥራ እድሎችን ማግኘት') },
+    { value: 'certification', icon: '📜', label: L('Earn a Certificate', 'ሰርተፍኬት ማግኘት') }
+  ];
+
+  const supportOptions = SUPPORT_NEEDS.map(n => ({
+    value: n,
+    icon: NEED_ICONS[n] || '♿',
+    label: label('support', n, lang)
+  }));
 
   return [
-    // B1: Welcome
     {
       id: 'welcome_settings',
       required: true,
-      title: isAm ? 'እንኳን ወደ ሳቫና ተደራሽ የመማሪያ መድረክ በደህና መጡ' : 'Welcome to Savanna Accessible Learning',
-      label: isAm ? 'እባክዎ እንዴት መቀጠል እንደሚፈልጉ ይምረጡ፡' : 'Please choose how you would like to proceed:',
-      helpText: isAm ? 'የመረጡትን ቋንቋ እና የአቀራረብ ሁነታ ይምረጡ።' : 'Select your preferred language and reading mode.',
+      title: L('Welcome to Savanna', 'እንኳን ወደ ሳቫና በደህና መጡ'),
+      label: L('Choose language and mode:', 'ቋንቋ እና የአቀራረብ ሁነታ ይምረጡ፡'),
+      helpText: L('Select preferred language.', 'የመረጡትን ቋንቋ ይምረጡ።'),
       inputType: 'radio',
       options: [
-        { value: 'en_standard', label: 'English (Standard)', icon: '🌐' },
-        { value: 'en_simple', label: 'English (Simple with icons)', icon: '🖼️' },
-        { value: 'am_standard', label: 'አማርኛ (መደበኛ)', icon: '🇪🇹' },
-        { value: 'am_simple', label: 'አማርኛ (ቀላል አቀራረብ ከምስሎች ጋር)', icon: '🇪🇹' }
+        { value: 'en_standard', icon: '🌐', label: 'English (Standard)' },
+        { value: 'en_simple', icon: '🖼️', label: 'English (Simple + icons)' },
+        { value: 'am_standard', icon: '🇪🇹', label: 'አማርኛ (መደበኛ)' },
+        { value: 'am_simple', icon: '🇪🇹', label: 'አማርኛ (ቀላል + ምስሎች)' }
       ],
-      value: isAm ? 'am_standard' : 'en_standard',
-      readAloudText: isAm
-        ? 'እንኳን ወደ ሳቫና ተደራሽ የመማሪያ መድረክ በደህና መጡ። ለመጀመር እባክዎ ቋንቋዎን እና የአቀራረብ ሁነታዎን ይምረጡ።'
-        : 'Welcome to Savanna Accessible Learning. Please choose your language and interface mode to get started.'
+      value: isAm ? 'am_standard' : 'en_standard'
     },
-    // B2: Name
     {
       id: 'name',
       required: true,
-      title: isAm ? 'ምን ብለን እንጥራዎት?' : 'What should we call you?',
-      label: isAm ? 'የእርስዎ ስም ወይም ቅጽል ስም (ግዴታ)፡' : 'Your name or nickname (required):',
-      helpText: isAm ? 'የመጀመሪያ ስም ወይም ማንኛውንም ቅጽል ስም መጠቀም ይችላሉ። ምንም ጥብቅ ደንብ የለም።' : 'Feel free to use a nickname or any name you prefer. Minimum 2 characters.',
+      title: L('What should we call you?', 'ምን ብለን እንጥራዎት?'),
+      label: L('Your name or nickname (required):', 'የእርስዎ ስም ወይም ቅጽል ስም (ግዴታ)፡'),
+      helpText: L('Nickname or full name. Minimum 2 characters.', 'የመጀመሪያ ስም ወይም ቅጽል ስም መጠቀም ይችላሉ።'),
       inputType: 'text',
       voiceEnabled: true,
-      validation: (val) => validateName(val, lang),
-      readAloudText: isAm
-        ? 'ምን ብለን እንጥራዎት? የመጀመሪያ ስምዎን ወይም ቅጽል ስምዎን ማስገባት ይችላሉ።'
-        : 'What should we call you? You can use your first name or a nickname.'
+      validation: (val) => validateName(val, lang)
     },
-    // B3: Contact
     {
       id: 'contactValue',
       required: true,
-      title: isAm ? 'እንዴት እናገኝዎት?' : 'How can we reach you?',
-      label: isAm ? 'የስልክ ቁጥር (10 አሃዞች - 09 ወይም 07) ወይም የኢሜይል አድራሻ (ግዴታ)፡' : 'Phone number (10 digits starting with 09 or 07) or Email address (required):',
-      helpText: isAm ? 'እባክዎ በ 09 ወይም 07 የሚጀምር ባለ 10 አሃዝ ስልክ ቁጥር (ለምሳሌ፡ 0912345678) ወይም ተገቢ የሆነ ኢሜይል ያስገቡ።' : 'Please enter a 10-digit phone number starting with 09 or 07 (e.g. 0912345678) or a valid email address.',
-      placeholder: isAm ? '0912345678 ወይም name@example.com' : '0912345678 or name@example.com',
+      title: L('How can we reach you?', 'እንዴት እናገኝዎት?'),
+      label: L('Phone (10 digits starting 09/07) or Email:', 'ስልክ ቁጥር (09/07) ወይም ኢሜይል፡'),
+      helpText: L('10-digit phone (09/07) or email address.', 'ባለ 10 አሃዝ ስልክ (09/07) ወይም ኢሜይል ያስገቡ።'),
+      placeholder: L('0912345678 or name@example.com', '0912345678 ወይም name@example.com'),
       inputType: 'tel',
       voiceEnabled: true,
       validation: (val) => validateContact('auto', val, lang),
-      readAloudText: isAm
-        ? 'እንዴት እናገኝዎት? እባክዎ በ 09 ወይም 07 የሚጀምር ባለ 10 አሃዝ የስልክ ቁጥርዎን ወይም የኢሜይል አድራሻዎን ያስገቡ።'
-        : 'How can we reach you? Please enter your 10-digit phone number starting with 09 or 07, or your email address.',
       onValidateAsync: async (val, answers) => {
         if (typeof onAlreadyRegistered !== 'function') return true;
         const isEmail = val && val.includes('@');
         let contactDigits = String(val || '').trim();
-        if (!isEmail) {
-          contactDigits = contactDigits.replace(/[^0-9]/g, '');
-        }
+        if (!isEmail) contactDigits = contactDigits.replace(/[^0-9]/g, '');
         const check = await checkLearnerExists({
           name: answers.name || '',
           contact: { type: isEmail ? 'email' : 'phone', value: contactDigits }
@@ -78,371 +93,274 @@ export function getOnboardingScreens(lang = 'en', onAlreadyRegistered = null) {
         return true;
       }
     },
-    // B4: ID Route
     {
       id: 'idRoute',
       required: true,
-      title: isAm ? 'የመታወቂያ ሰነድ መንገድ' : 'Identification document route',
-      label: isAm ? 'መለያዎን እንዴት ማረጋገጥ እንደሚፈልጉ ይምረጡ (ግዴታ)፡' : 'Choose how you would like to verify your account (required):',
-      helpText: isAm ? 'ሁሉም ሰው ተጋብዟል። ሰነድ ከሌለዎት በአጋር ድርጅት በኩል መረጋገጥ ይችላሉ።' : 'Everyone is welcome. If you do not have an official document, partner referral is available.',
+      title: L('ID Verification', 'የመታወቂያ ማረጋገጫ መንገድ'),
+      label: L('Choose how to verify your account (required):', 'መለያዎን እንዴት ማረጋገጥ እንደሚፈልጉ ይምረጡ፡'),
+      helpText: L('Partner referral is available if you do not have an ID.', 'ሰነድ ከሌለዎት በአጋር ድርጅት በኩል መረጋገጥ ይችላሉ።'),
       inputType: 'radio',
       value: 'kebele',
-      options: [
-        {
-          value: 'kebele',
-          label: isAm ? 'የቀበሌ መታወቂያ ካርድ' : 'Kebele ID Card',
-          icon: '🪪',
-          description: isAm ? 'ብሔራዊ የቀበሌ መታወቂያ ካርድ' : 'National Kebele identification card'
-        },
-        {
-          value: 'passport',
-          label: isAm ? 'ፓስፖርት' : 'Passport',
-          icon: '🛂',
-          description: isAm ? 'ተቀባይነት ያለው ፓስፖርት' : 'Valid national passport'
-        },
-        {
-          value: 'refugee',
-          label: isAm ? 'የስደተኞች መታወቂያ' : 'Refugee ID / UNHCR',
-          icon: '📄',
-          description: isAm ? 'ይፋዊ የስደተኞች ምዝገባ ሰነድ' : 'Official refugee registration document'
-        },
-        {
-          value: 'other_document',
-          label: isAm ? 'ሌላ የመንግስት ሰነድ' : 'Other Government Document',
-          icon: '📋',
-          description: isAm ? 'የተማሪ መታወቂያ፣ የመንጃ ፈቃድ፣ ወዘተ.' : 'Student ID, Driver license, etc.'
-        },
-        {
-          value: 'referral',
-          label: isAm ? 'ሰነድ የለኝም — በአጋር ድርጅት በኩል አረጋግጡኝ' : 'I do not have one — refer me through a partner',
-          icon: '🤝',
-          description: isAm ? 'ምንም እንቅፋት የለም። የማህበረሰብ አጋር ድርጅት ግምገማ።' : 'No dead end. Community partner review.'
-        }
-      ],
-      readAloudText: isAm
-        ? 'የመታወቂያ ሰነድ መንገድ። የቀበሌ መታወቂያ፣ ፓስፖርት፣ የስደተኞች መታወቂያ፣ ሌላ ሰነድ፣ ወይም በአጋር ድርጅት በኩል መረጋገጥን ይምረጡ።'
-        : 'Identification document route. Choose Kebele ID, Passport, Refugee ID, Other document, or refer me through a community partner.'
+      options: idOptions
     },
-    // B5: ID Details (Conditional: only shown if document route chosen)
     {
       id: 'idNumber',
-      title: isAm ? 'የመታወቂያ ሰነድ ቁጥርዎን ያስገቡ' : 'Enter your ID document number',
-      label: isAm ? 'የሰነድ ቁጥር (አሁን ማስገባት አማራጭ ነው)፡' : 'Document number (optional now):',
-      helpText: isAm ? 'ለምሳሌ፡ 12345/AA። አሁን ዘለው ቆይተው ማስገባት ይችላሉ።' : 'For example: 12345/AA. You can also skip this and add it later.',
-      placeholder: isAm ? 'ምሳሌ፡ 12345/AA' : 'e.g. 12345/AA',
+      title: L('Enter ID Number', 'የመታወቂያ ቁጥር ያስገቡ'),
+      label: L('Document number (optional now):', 'የሰነድ ቁጥር (አሁን ማስገባት አማራጭ ነው)፡'),
+      helpText: L('e.g. 12345/AA. Can skip and add later.', 'ለምሳሌ፡ 12345/AA። ቆይተው ማስገባት ይችላሉ።'),
+      placeholder: L('e.g. 12345/AA', 'ምሳሌ፡ 12345/AA'),
       inputType: 'text',
       voiceEnabled: true,
       condition: (answers) => answers.idRoute && answers.idRoute !== 'referral',
-      validation: (val, answers) => {
-        const route = (answers && answers.idRoute) || 'kebele';
-        return validateIdNumber(route, val, lang);
-      },
-      readAloudText: isAm
-        ? 'የመታወቂያ ሰነድ ቁጥርዎን ያስገቡ። ለምሳሌ 12345/AA። መጻፍ ወይም በድምፅ መናገር ይችላሉ፣ ወይም ዘለው ቆይተው ማስገባት ይችላሉ።'
-        : 'Enter your ID document number. For example: 12345/AA. You can type or speak it, or skip and add later.'
+      validation: (val, answers) => validateIdNumber((answers && answers.idRoute) || 'kebele', val, lang)
     },
-    // B6: Referral (Conditional: only shown if referral chosen)
     {
       id: 'partnerReferral',
       required: true,
-      title: isAm ? 'የአጋር ድርጅት ዝርዝሮች' : 'Partner Referral Details',
-      label: isAm ? 'የአጋር ማህበረሰብ ድርጅትዎን ይምረጡ (ግዴታ)፡' : 'Select your community partner organization (required):',
-      helpText: isAm ? 'ባህላዊ ሰነዶች የሌላቸውን ተማሪዎች ለማረጋገጥ ከአጋር ድርጅቶች ጋር እንሰራለን።' : 'We collaborate with community partners to verify learners without traditional documents.',
+      title: L('Partner Referral', 'የአጋር ድርጅት ዝርዝሮች'),
+      label: L('Select your partner organization (required):', 'የአጋር ድርጅትዎን ይምረጡ (ግዴታ)፡'),
+      helpText: L('Partners verify learners without official documents.', 'አጋር ድርጅቶች ሰነድ የሌላቸውን ተማሪዎች ያረጋግጣሉ።'),
       inputType: 'radio',
       value: 'aaapd',
-      options: [
-        { value: 'aaapd', label: isAm ? 'የአካል ጉዳተኞች ማህበር (AAAPD)' : 'AAAPD (Addis Ababa Association of Persons with Disabilities)', icon: '🏢' },
-        { value: 'ena', label: isAm ? 'የኢትዮጵያ ዓይነ ስውራን / መስማት የተሳናቸው ማህበር' : 'Ethiopian National Association of the Blind / Deaf', icon: '🤝' },
-        { value: 'unhcr', label: isAm ? 'UNHCR / የስደተኞች ማህበረሰብ አጋር' : 'UNHCR / Refugee Community Partner', icon: '🌐' },
-        { value: 'other_partner', label: isAm ? 'ሌላ የማህበረሰብ አጋር ድርጅት' : 'Other Community Partner', icon: '📍' }
-      ],
-      condition: (answers) => answers.idRoute === 'referral',
-      readAloudText: isAm
-        ? 'የአጋር ማህበረሰብ ድርጅትዎን ይምረጡ።'
-        : 'Select your community partner organization to complete your referral.'
+      options: partnerOptions,
+      condition: (answers) => answers.idRoute === 'referral'
     },
-    // B7: Learning Goals
     {
       id: 'goals',
       required: true,
-      title: isAm ? 'የመማር ግቦችዎ ምንድን ናቸው?' : 'What are your learning goals?',
-      label: isAm ? 'ሊያሳኩት የሚፈልጉትን ይምረጡ (ቢያንስ አንድ ይምረጡ)፡' : 'Select what you hope to achieve (choose at least one):',
-      helpText: isAm ? 'ይህ ለእርስዎ ተስማሚ ኮርሶችን እና የሥራ እድሎችን እንድንጠቁም ይረዳናል።' : 'This helps us suggest the best courses and career tracks for you.',
+      title: L('Learning Goals', 'የመማር ግቦችዎ'),
+      label: L('Select what you hope to achieve:', 'ሊያሳኩት የሚፈልጉትን ይምረጡ፡'),
+      helpText: L('Helps us suggest suitable courses.', 'ተስማሚ ኮርሶችን እንድንጠቁም ይረዳናል።'),
       inputType: 'checkbox',
-      options: [
-        {
-          value: 'virtual_assistant',
-          label: isAm ? 'የርቀት ደንበኞች አገልግሎት ረዳት (VA)' : 'Virtual Assistant & Remote Work',
-          icon: '💻',
-          description: isAm ? 'የደንበኞች አገልግሎት፣ አስተዳደር፣ መርሐግብር' : 'Customer support, admin, scheduling'
-        },
-        {
-          value: 'tech_skills',
-          label: isAm ? 'ዲጂታል እና የቴክኖሎጂ ክህሎቶች' : 'Digital & Tech Skills',
-          icon: '🚀',
-          description: isAm ? 'የመረጃ ማስገቢያ፣ የኮምፒውተር መሰረታዊ እውቀት' : 'Data entry, computer fundamentals'
-        },
-        {
-          value: 'career_jobs',
-          label: isAm ? 'ተደራሽ የሥራ እድሎችን ማግኘት' : 'Find an Inclusive Job',
-          icon: '💼',
-          description: isAm ? 'ድጋፎችን ከሚያዘጋጁ አሰሪዎች ጋር መገናኘት' : 'Connect with employers offering accommodations'
-        },
-        {
-          value: 'certification',
-          label: isAm ? 'እውቅና ያለው ሰርተፍኬት ማግኘት' : 'Earn a Recognized Certificate',
-          icon: '📜',
-          description: isAm ? 'በአልኤክስ የተረጋገጠ የክህሎት ማረጋገጫ' : 'ALX accredited skills credential'
-        }
-      ],
-      readAloudText: isAm
-        ? 'የመማር ግቦችዎ ምንድን ናቸው? ሊያሳኩት የሚፈልጉትን ይምረጡ።'
-        : 'What are your learning goals? Select what you hope to achieve.'
+      options: goalOptions
     },
-    // B8: Support you need (Private)
     {
       id: 'supportNeeds',
-      title: isAm ? 'የሚያስፈልግዎት ድጋፍ (የግል)' : 'Support you need (Private)',
-      label: isAm ? 'የሚፈልጓቸውን የተደራሽነት ድጋፎች ሁሉ ይምረጡ (አማራጭ)፡' : 'Select all accessibility accommodations you would like (optional):',
-      helpText: isAm ? 'ምንም የህክምና ማረጋገጫ አያስፈልግም። መረጃው በግል የተጠበቀ ነው።' : 'No medical proof needed. Stored privately and never shared with employers.',
+      title: L('Support You Need', 'የሚያስፈልግዎት ድጋፍ'),
+      label: L('Select accommodations that help you (optional):', 'የመማሪያ ድጋፍ አማራጮች (አማራጭ)፡'),
+      helpText: L('Private. No medical proof required.', 'በሚስጥር የተጠበቀ። የህክምና ማረጋገጫ አያስፈልግም።'),
       inputType: 'checkbox',
-      options: SUPPORT_NEEDS.map(need => ({
-        value: need,
-        label: label('support', need, isAm ? 'am' : 'en'),
-        icon: '♿'
-      })),
-      readAloudText: isAm
-        ? 'የሚያስፈልግዎት ድጋፍ። የሚፈልጓቸውን የተደራሽነት ድጋፎች ይምረጡ። ምንም የህክምና ማረጋገጫ አያስፈልግም፣ መረጃውም በግል የተጠበቀ ነው።'
-        : 'Support you need. Select any accessibility accommodations you would like. No medical proof is needed, and this is stored privately.'
+      options: supportOptions
+    },
+    {
+      id: 'review_confirm',
+      title: L('Review & Confirm', 'መረጃዎን ያረጋግጡ'),
+      label: L('Check your details before submitting:', 'እባክዎ መረጃዎን ይፈትሹ እና ያረጋግጡ፡'),
+      helpText: L('You can edit your profile anytime later.', 'መገለጫዎን በማንኛውም ጊዜ ማስተካከል ይችላሉ።'),
+      inputType: 'radio',
+      options: [
+        { value: 'confirm_ready', icon: '✅', label: L('Everything looks good — create my account', 'ሁሉም መረጃ ትክክል ነው — መለያዬን ፍጠር') }
+      ],
+      value: 'confirm_ready'
     }
   ];
 }
 
-/**
- * Screens B1 to B10 configuration for the onboarding flow.
- */
+const DRAFT_KEY = 'ik_onboarding_draft';
+
 export function startOnboardingFlow(options) {
-  const { container, initialLanguage = 'en', onComplete, onNavigateToJobs } = options;
+  const container = options.container;
+  const initialLang = options.initialLanguage || 'en';
+  const onComplete = options.onComplete || null;
+  const onNavigateToJobs = options.onNavigateToJobs || null;
 
-  let currentLang = initialLanguage === 'am' || String(initialLanguage).startsWith('am') ? 'am' : 'en';
-  let isSimpleMode = false;
-
-  // Restore draft answers if available (for refresh or connection drop)
-  const DRAFT_KEY = 'ik_onboarding_draft';
-  let draftAnswers = {};
-  let draftStep = 0;
-  let hasRestoredDraft = false;
+  let savedDraft = null;
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.answers && Object.keys(parsed.answers).length > 0) {
-        draftAnswers = parsed.answers;
-        draftStep = typeof parsed.stepIndex === 'number' ? parsed.stepIndex : 0;
-        hasRestoredDraft = true;
-      }
-    }
+    if (raw) savedDraft = JSON.parse(raw);
   } catch (e) {}
 
-  function renderAlreadyRegistered(existingId, name) {
-    const rawId = existingId || getLearnerId() || 'lrn_demo';
-    const finalId = String(rawId).startsWith('lrn_') ? String(rawId) : 'lrn_' + rawId;
-    saveLearnerId(finalId);
-    try {
-      localStorage.setItem('inclusive_learner_id', finalId);
-      localStorage.setItem('ik_current_learner_id', finalId);
-      localStorage.removeItem(DRAFT_KEY);
-    } catch (e) {}
+  const initialAnswers = (savedDraft && savedDraft.answers) ? sanitizeDraftAnswers(savedDraft.answers) : {};
 
-    const isAm = currentLang === 'am';
-    const learnerObj = { id: finalId, name: name || 'Learner' };
+  function renderAlreadyRegistered(existingId, learnerName) {
+    container.textContent = '';
+    const isAm = engine.language === 'am' || String(engine.language).startsWith('am');
+    const safeName = learnerName || (isAm ? 'ተማሪ' : 'Learner');
+    const safeId = existingId || 'lrn_demo';
 
-    container.innerHTML = `
-      <div class="ik-card ik-already-registered-card" role="region" aria-live="polite">
-        <div class="ik-already-badge">
-          <span class="ik-badge ik-badge-info">ℹ️ ${isAm ? 'የተመዘገበ መለያ' : 'Existing Profile'}</span>
-        </div>
-        <h2 class="ik-already-title">${isAm ? 'አስቀድመው ተመዝግበዋል!' : 'You are already registered!'}</h2>
-        <p class="ik-already-message">
-          ${isAm
-            ? 'በዚህ ስም እና ስልክ ቁጥር የተመዘገበ መለያ አስቀድሞ አለ። ቀሪውን መረጃ እንደገና መሙላት አያስፈልግዎትም፤ በቀጥታ ወደ መገለጫዎ ወይም ወደ ክፍት የሥራ ቦታዎች መሄድ ይችላሉ።'
-            : 'An account with this name and phone number is already registered. You do not need to fill the rest of the form; you can proceed directly to your profile or explore accessible jobs.'}
-        </p>
-        <div class="ik-already-actions">
-          <button type="button" class="ik-btn ik-btn-primary ik-btn-go-profile">
-            👤 ${isAm ? 'መገለጫዬን ተመልከት' : 'View My Profile'}
-          </button>
-          <button type="button" class="ik-btn ik-btn-secondary ik-btn-go-jobs">
-            💼 ${isAm ? 'ተደራሽ ስራዎችን ፈልግ' : 'Find Accessible Jobs'}
-          </button>
-          <button type="button" class="ik-btn ik-btn-outline ik-btn-start-over">
-            ${isAm ? 'በሌላ መረጃ ሞክር' : 'Try with different details'}
-          </button>
-        </div>
-      </div>
-    `;
-
-    container.querySelector('.ik-btn-go-profile').addEventListener('click', () => {
-      if (onComplete) onComplete(learnerObj);
-    });
-    container.querySelector('.ik-btn-go-jobs').addEventListener('click', () => {
-      if (onNavigateToJobs) onNavigateToJobs(learnerObj);
-    });
-    container.querySelector('.ik-btn-start-over').addEventListener('click', () => {
-      try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
-      startOnboardingFlow(options);
-    });
+    const card = h('div', 'ik-already-registered-card', null, [
+      h('div', 'ik-already-badge', null, [
+        h('span', 'ik-badge ik-badge-info', 'ℹ️ ' + (isAm ? 'ቀድሞ የተመዘገበ መለያ' : 'Existing Profile Found'))
+      ]),
+      h('h2', 'ik-already-title', isAm ? `እንኳን ደህና መጡ፣ ${safeName}!` : `Welcome back, ${safeName}!`),
+      h('p', 'ik-already-message', isAm
+        ? 'በዚህ ስልክ ቁጥር ወይም ኢሜይል የተመዘገበ መለያ አግኝተናል። እንደገና መመዝገብ አያስፈልግዎትም!'
+        : 'We found an existing profile with your contact details. You do not need to register again!'),
+      h('div', 'ik-already-actions', null, [
+        btn('ik-btn ik-btn-primary ik-btn-existing-jobs', isAm ? '💼 ወደ ተደራሽ የስራ እድሎች ሂድ' : '💼 Go to Career Gateway', () => {
+          saveLearnerId(safeId);
+          if (onNavigateToJobs) onNavigateToJobs({ id: safeId, name: safeName, language: engine.language });
+        }),
+        btn('ik-btn ik-btn-secondary ik-btn-existing-profile', isAm ? '👤 መገለጫዬን ክፈት' : '👤 View My Profile', () => {
+          saveLearnerId(safeId);
+          if (onComplete) onComplete({ id: safeId, name: safeName, language: engine.language });
+        })
+      ])
+    ]);
+    card.setAttribute('role', 'region');
+    card.setAttribute('aria-live', 'polite');
+    container.appendChild(card);
   }
 
-  let screens = getOnboardingScreens(currentLang, renderAlreadyRegistered);
-
   const engine = new StepEngine({
-    container: container,
-    screens: screens,
-    language: currentLang,
-    isSimpleMode: isSimpleMode,
-    initialAnswers: draftAnswers,
-    initialStep: draftStep,
-    draftRestored: hasRestoredDraft,
-    sessionId: 'ik_onboarding_session',
+    container,
+    screens: getOnboardingScreens(initialLang, renderAlreadyRegistered),
+    initialAnswers,
+    draftRestored: Boolean(savedDraft && Object.keys(initialAnswers).length > 0),
+    language: initialLang,
     onSaveDraft: (draft) => {
       try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          answers: sanitizeDraftAnswers(draft.answers),
+          timestamp: Date.now()
+        }));
       } catch (e) {}
     },
     onClearDraft: () => {
-      try {
-        localStorage.removeItem(DRAFT_KEY);
-      } catch (e) {}
+      try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
     },
     onComplete: async (answers) => {
-      const selectedSetting = answers.welcome_settings || (currentLang === 'am' ? 'am_standard' : 'en_standard');
-      const lang = selectedSetting.startsWith('am') ? 'am' : 'en';
-      const mode = selectedSetting.endsWith('simple') ? 'simple' : 'standard';
-      const isAm = lang === 'am';
+      async function submitRegistration(currentAnswers) {
+        const selectedMode = currentAnswers.welcome_settings || 'en_standard';
+        const lang = selectedMode.startsWith('am') ? 'am' : 'en';
+        const isAm = lang === 'am';
+        const mode = selectedMode.includes('simple') ? 'simple' : 'standard';
 
-      container.innerHTML = `
-        <div class="ik-loading-indicator" role="status">
-          <div class="ik-spinner"></div>
-          <p>${isAm ? 'ተደራሽ መገለጫዎን በመፍጠር ላይ...' : 'Creating your accessible profile...'}</p>
-        </div>
-      `;
+        container.textContent = '';
+        const loadingDiv = h('div', 'ik-loading-indicator', null, [
+          h('div', 'ik-spinner'),
+          h('p', null, isAm ? 'መለያዎን በመፍጠር ላይ...' : 'Creating your accessible profile...')
+        ]);
+        loadingDiv.setAttribute('role', 'status');
+        container.appendChild(loadingDiv);
 
-      try {
-        // 1. Create learner with user's validated answers (no dummy defaults)
-        const isEmailContact = answers.contactValue && answers.contactValue.includes('@');
-        let contactValue = String(answers.contactValue || '').trim();
-        if (!isEmailContact) {
-          contactValue = contactValue.replace(/[^0-9]/g, '');
-        }
-
-        const learner = await createLearner({
-          name: (answers.name || '').trim(),
-          contact: {
-            type: isEmailContact ? 'email' : 'phone',
-            value: contactValue
-          },
-          idRoute: answers.idRoute || 'kebele',
-          idNumber: answers.idNumber ? String(answers.idNumber).trim() : null,
-          mode: mode,
-          language: lang,
-          partnerRef: answers.partnerReferral || null
-        });
-
-        // Registration successful - clean up the draft
-        try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
-
-        // Save real lrn_... ID to browser's local storage (requested by backend team)
-        saveLearnerId(learner.id);
         try {
-          localStorage.setItem('inclusive_learner_id', learner.id);
-          localStorage.setItem('ik_current_learner_id', learner.id);
-          localStorage.setItem('ik_learner_' + learner.id, JSON.stringify(learner));
-        } catch (e) {}
+          const contactValue = currentAnswers.contactValue ? String(currentAnswers.contactValue).trim() : '';
+          const isEmailContact = contactValue.includes('@');
 
-        // 2. Save private support needs if selected
-        if (answers.supportNeeds && Array.isArray(answers.supportNeeds) && answers.supportNeeds.length > 0) {
-          await saveSupport(learner.id, answers.supportNeeds);
-        }
-
-        // 3. Save referral if chosen
-        if (answers.idRoute === 'referral') {
-          await createReferral({
-            learnerId: learner.id,
-            partner: answers.partnerReferral || 'aaapd',
-            contactPreference: 'phone'
+          const learner = await createLearner({
+            name: (currentAnswers.name || '').trim(),
+            contact: {
+              type: isEmailContact ? 'email' : 'phone',
+              value: contactValue
+            },
+            idRoute: currentAnswers.idRoute || 'kebele',
+            idNumber: currentAnswers.idNumber ? String(currentAnswers.idNumber).trim() : null,
+            mode,
+            language: lang,
+            partnerRef: currentAnswers.partnerReferral || null
           });
-        }
 
-        // B10: Done Confirmation Screen
-        container.innerHTML = `
-          <div class="ik-success-card" role="region" aria-live="polite">
-            <div class="ik-success-icon" aria-hidden="true">🎉</div>
-            <h2 class="ik-success-title">${isAm ? `እንኳን ደህና መጡ፣ ${learner.name}!` : `Welcome, ${learner.name}!`}</h2>
-            <p class="ik-success-message">
-              ${isAm
-                ? `የእርስዎ ተደራሽ የመማሪያ መገለጫ ተፈጥሯል። ${learner.idRoute === 'referral' ? 'የአጋር ድርጅት ማረጋገጫ በመጠባበቅ ላይ ነው፣ ነገር ግን ወዲያውኑ ሁሉንም ኮርሶች እና ስራዎች ማግኘት ይችላሉ።' : 'የእርስዎ ማረጋገጫ ተመዝግቧል።'}`
-                : `Your accessible learning profile has been created. ${learner.idRoute === 'referral' ? 'Your partner referral is pending review, but you have immediate access to all courses and jobs.' : 'Your verification is on file.'}`}
-            </p>
-            <div class="ik-callout ik-callout-private">
-              <span class="ik-badge ik-badge-private">${t('privateBadge', lang)}</span>
-              <p>${isAm ? 'የመረጧቸው የድጋፍ ፍላጎቶች በተለየ የተደራሽነት መዝገብ ውስጥ በግል ተቀምጠዋል።' : 'Your support preferences are stored in our isolated accommodations registry.'}</p>
-            </div>
-            <div class="ik-success-actions">
-              <button type="button" class="ik-btn ik-btn-primary ik-btn-go-jobs">
-                💼 ${isAm ? 'ተደራሽ የሥራ እድሎችን ፈልግ' : 'Find Accessible Jobs'}
-              </button>
-              <button type="button" class="ik-btn ik-btn-secondary ik-btn-view-profile">
-                👤 ${isAm ? 'መገለጫዬን ተመልከት' : 'View My Profile'}
-              </button>
-            </div>
-          </div>
-        `;
+          try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+          saveLearnerId(learner.id);
+          try {
+            localStorage.setItem('inclusive_learner_id', learner.id);
+            localStorage.setItem('ik_current_learner_id', learner.id);
+            localStorage.setItem('ik_learner_' + learner.id, JSON.stringify(learner));
+          } catch (e) {}
 
-        container.querySelector('.ik-btn-go-jobs').addEventListener('click', () => {
-          if (onNavigateToJobs) onNavigateToJobs(learner);
-        });
-
-        container.querySelector('.ik-btn-view-profile').addEventListener('click', () => {
-          if (onComplete) onComplete(learner);
-        });
-
-      } catch (err) {
-        // Check if user is already registered (409 Conflict)
-        const isDuplicate = err.status === 409 ||
-          (err.errors && err.errors._ && /already exists|already registered|ተመዝግበዋል/i.test(err.errors._));
-
-        if (isDuplicate) {
-          const rawExistingId = err.existingId || (err.errors && err.errors.existingId);
-          renderAlreadyRegistered(rawExistingId, answers.name);
-          return;
-        }
-
-        let errorMsg = err.message || 'Something went wrong';
-        if (err.errors) {
-          if (typeof err.errors === 'string') {
-            errorMsg = err.errors;
-          } else if (err.errors._) {
-            errorMsg = err.errors._;
-          } else if (typeof err.errors === 'object') {
-            const firstErr = Object.values(err.errors)[0];
-            if (firstErr) errorMsg = firstErr;
+          if (currentAnswers.supportNeeds && Array.isArray(currentAnswers.supportNeeds) && currentAnswers.supportNeeds.length > 0) {
+            await saveSupport(learner.id, currentAnswers.supportNeeds);
           }
+
+          if (currentAnswers.idRoute === 'referral') {
+            await createReferral({
+              learnerId: learner.id,
+              partner: currentAnswers.partnerReferral || 'aaapd',
+              contactPreference: 'phone'
+            });
+          }
+
+          container.textContent = '';
+          const successCard = h('div', 'ik-success-card', null, [
+            h('div', 'ik-success-icon', '🎉'),
+            h('h2', 'ik-success-title', isAm ? `እንኳን ደህና መጡ፣ ${learner.name}!` : `Welcome, ${learner.name}!`),
+            h('p', 'ik-success-message', isAm
+              ? `የእርስዎ ተደራሽ የመማሪያ መገለጫ ተፈጥሯል። ${learner.idRoute === 'referral' ? 'የአጋር ድርጅት ማረጋገጫ በመጠባበቅ ላይ ነው፣ ነገር ግን ወዲያውኑ ሁሉንም ኮርሶች እና ስራዎች ማግኘት ይችላሉ።' : 'የእርስዎ ማረጋገጫ ተመዝግቧል።'}`
+              : `Your accessible learning profile has been created. ${learner.idRoute === 'referral' ? 'Your partner referral is pending review, but you have immediate access to all courses and jobs.' : 'Your verification is on file.'}`),
+            h('div', 'ik-callout ik-callout-private', null, [
+              h('span', 'ik-badge ik-badge-private', t('privateBadge', lang)),
+              h('p', null, isAm ? 'የመረጧቸው የድጋፍ ፍላጎቶች በተለየ የተደራሽነት መዝገብ ውስጥ በግል ተቀምጠዋል።' : 'Your support preferences are stored in our isolated accommodations registry.')
+            ]),
+            h('div', 'ik-success-actions', null, [
+              btn('ik-btn ik-btn-primary ik-btn-go-jobs', '💼 ' + (isAm ? 'ተደራሽ የሥራ እድሎችን ፈልግ' : 'Find Accessible Jobs'), () => {
+                if (onNavigateToJobs) onNavigateToJobs(learner);
+              }),
+              btn('ik-btn ik-btn-secondary ik-btn-view-profile', '👤 ' + (isAm ? 'መገለጫዬን ተመልከት' : 'View My Profile'), () => {
+                if (onComplete) onComplete(learner);
+              })
+            ])
+          ]);
+          successCard.setAttribute('role', 'region');
+          successCard.setAttribute('aria-live', 'polite');
+          container.appendChild(successCard);
+
+        } catch (err) {
+          const isDuplicate = err.status === 409 ||
+            (err.errors && err.errors._ && /already exists|already registered|ተመዝግበዋል/i.test(err.errors._));
+
+          if (isDuplicate) {
+            const rawExistingId = err.existingId || (err.errors && err.errors.existingId);
+            renderAlreadyRegistered(rawExistingId, currentAnswers.name);
+            return;
+          }
+
+          let errorMsg = err.message || 'Something went wrong';
+          if (err.errors) {
+            if (typeof err.errors === 'string') errorMsg = err.errors;
+            else if (err.errors._) errorMsg = err.errors._;
+            else if (typeof err.errors === 'object') {
+              const firstErr = Object.values(err.errors)[0];
+              if (firstErr) errorMsg = firstErr;
+            }
+          }
+
+          try {
+            localStorage.setItem(DRAFT_KEY, JSON.stringify({
+              answers: sanitizeDraftAnswers(currentAnswers),
+              timestamp: Date.now()
+            }));
+          } catch (e) {}
+
+          container.textContent = '';
+          const errP = h('p', 'ik-error-msg', null, [
+            h('strong', null, isAm ? 'ስህተት ተከስቷል፡ ' : 'Error creating profile: '),
+            document.createTextNode(errorMsg)
+          ]);
+
+          const retryBtn = btn('ik-btn ik-btn-primary ik-retry-onboarding', isAm ? 'እንደገና ሞክር' : 'Try again');
+          const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+          if (isOffline) {
+            retryBtn.disabled = true;
+            retryBtn.title = isAm ? 'ኢንተርኔት ሲመለስ በራሱ ይሰራል' : 'Will enable automatically when internet is restored';
+          }
+
+          const errorCard = h('div', 'ik-error-card', null, [errP, retryBtn]);
+          errorCard.setAttribute('role', 'alert');
+
+          const onOnline = () => {
+            retryBtn.disabled = false;
+            retryBtn.removeAttribute('title');
+            const notice = h('div', 'ik-alert ik-alert-success', isAm ? '🌐 ግንኙነት ተመልሷል! አሁን "እንደገና ሞክር" የሚለውን መጫን ይችላሉ።' : '🌐 Internet connection restored! You can now click "Try again".');
+            notice.setAttribute('role', 'status');
+            errorCard.insertBefore(notice, retryBtn);
+            window.removeEventListener('online', onOnline);
+          };
+          window.addEventListener('online', onOnline);
+
+          retryBtn.addEventListener('click', () => {
+            window.removeEventListener('online', onOnline);
+            submitRegistration(currentAnswers);
+          });
+
+          container.appendChild(errorCard);
         }
-        container.innerHTML = `
-          <div class="ik-error-card" role="alert">
-            <p class="ik-error-msg"><strong>${isAm ? 'ስህተት ተከስቷል፡' : 'Error creating profile:'}</strong> ${errorMsg}</p>
-            <button type="button" class="ik-btn ik-btn-secondary ik-retry-onboarding">${isAm ? 'እንደገና ሞክር' : 'Retry'}</button>
-          </div>
-        `;
-        container.querySelector('.ik-retry-onboarding').addEventListener('click', () => {
-          startOnboardingFlow(options);
-        });
       }
+
+      await submitRegistration(answers);
     }
   });
 
-  // Watch for language changes on the welcome screen
   const originalRender = engine.render.bind(engine);
   engine.render = function () {
     const selected = engine.answers.welcome_settings;
