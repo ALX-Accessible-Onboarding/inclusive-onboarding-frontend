@@ -7,11 +7,5 @@
       "maxDuration": 30
     }
   },
-  "outputDirectory": "dist",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ]
+  "outputDirectory": "."
 }
