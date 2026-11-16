@@ -104,7 +104,7 @@ server.on('error', (err) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n=================================================`);
   console.log(` Inclusive Access Kit Dev Server`);
   console.log(` App:        http://localhost:${PORT}`);

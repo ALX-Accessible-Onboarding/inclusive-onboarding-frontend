@@ -1,135 +1,206 @@
-import { StepEngine } from '../core/step-engine.js';
 import { createJob } from '../api-client.js';
 import { ACCOMMODATIONS } from '../vocabulary.js';
 import { label, t } from '../labels.js';
-import { h, btn } from '../core/dom.js';
+import { pickLang } from '../content-translations.js';
 
-const ACCOMMODATION_ICONS = {
-  read_aloud: '🔊',
-  flexible_hours: '⏰',
-  screen_reader_friendly: '💻',
-  voice_application: '🎤',
-  extra_interview_time: '⏳',
-  sign_language_interpreter: '👋',
-  other: '♿'
-};
-
+/**
+ * Task E4: Employer job posting form with accessibility accommodations checklist.
+ * @param {Object} options
+ * @param {HTMLElement} options.container
+ * @param {string} options.language - 'en' or 'am'
+ * @param {Function} options.onSuccess - callback(newJob)
+ * @param {Function} options.onCancel - callback()
+ */
 export function renderEmployerForm(options) {
-  const { container, language = 'en', isSimpleMode = false, onSuccess, onCancel } = options;
+  const { container, language = 'en', onSuccess, onCancel } = options;
 
-  container.textContent = '';
-  const isAm = language === 'am' || String(language).toLowerCase().startsWith('am');
+  container.innerHTML = `
+    <div class="ik-employer-form-card">
+      <div class="ik-form-header">
+        <h2 class="ik-form-title">${pickLang('Post an Inclusive Opportunity', 'አካታች የሥራ ማስታወቂያ ይለጥፉ', language)}</h2>
+        <p class="ik-form-subtitle">
+          ${pickLang('Detail the position and check off the accommodations your organization provides.', 'አካታች የስራ ቦታዎችን የሚያበረታቱ ድጋፎችን እና የስራውን ዝርዝር ያስገቡ።', language)}
+        </p>
+      </div>
 
-  const backBtn = onCancel
-    ? btn('ik-btn ik-btn-secondary ik-btn-sm ik-back-to-jobs', '← ' + t('back', language), onCancel)
-    : h('div');
+      <form class="ik-employer-form" novalidate>
+        <div class="ik-form-group">
+          <label for="ik_job_title" class="ik-label">
+            ${pickLang('Job Title', 'የሥራው መጠሪያ', language)} <span class="ik-required">*</span>
+          </label>
+          <input type="text" id="ik_job_title" name="title" class="ik-input" placeholder="e.g. Remote VA - Customer Support" required>
+          <p id="ik_job_title_err" class="ik-field-error ik-hidden" role="alert"></p>
+        </div>
 
-  const badgeSpan = h('span', 'ik-badge ik-badge-info', isAm ? '📝 አካታች የሥራ ማስታወቂያ መለጠፊያ' : '📝 Post an Opportunity');
-  const badgeDiv = h('div', 'ik-apply-job-badge', null, [badgeSpan]);
-  container.appendChild(h('div', 'ik-flow-header', null, [backBtn, badgeDiv]));
+        <div class="ik-form-group">
+          <label for="ik_job_employer" class="ik-label">
+            ${pickLang('Employer / Organization Name', 'የአሰሪው / የድርጅቱ ስም', language)} <span class="ik-required">*</span>
+          </label>
+          <input type="text" id="ik_job_employer" name="employer" class="ik-input" placeholder="e.g. Acme Logistics" required>
+          <p id="ik_job_employer_err" class="ik-field-error ik-hidden" role="alert"></p>
+        </div>
 
-  const engineMount = h('div', 'ik-step-engine-mount');
-  container.appendChild(engineMount);
+        <div class="ik-form-group">
+          <label for="ik_job_description" class="ik-label">
+            ${pickLang('Job Description', 'የሥራው መግለጫ', language)} <span class="ik-required">*</span>
+          </label>
+          <textarea id="ik_job_description" name="description" rows="5" class="ik-textarea" placeholder="${
+            pickLang('Describe the responsibilities, work environment, and qualifications...', 'ዋና ዋና ተግባራትን እና ሃላፊነቶችን ያብራሩ...', language)
+          }" required></textarea>
+          <p id="ik_job_description_err" class="ik-field-error ik-hidden" role="alert"></p>
+        </div>
 
-  const screens = [
-    {
-      id: 'title',
-      title: isAm ? 'የሥራው መጠሪያ' : 'Job Title',
-      label: isAm ? 'የሥራ መደቡ ስም ምንድን ነው?' : 'What is the job title or role name?',
-      helpText: isAm ? 'ምሳሌ፡ የርቀት ደንበኞች አገልግሎት ረዳት። መናገር ወይም መጻፍ ይችላሉ።' : 'e.g. Remote VA - Customer Support. You can type or speak.',
-      inputType: 'text',
-      required: true,
-      voiceEnabled: true,
-      placeholder: isAm ? 'ምሳሌ፡ የርቀት ደንበኞች አገልግሎት ረዳት' : 'e.g. Remote VA - Customer Support',
-      validation: (val) => (!val || String(val).trim().length < 2) ? (isAm ? 'እባክዎ ትክክለኛ የስራ መጠሪያ ያስገቡ (ቢያንስ 2 ፊደላት)።' : 'Please provide a valid job title (at least 2 characters).') : null
-    },
-    {
-      id: 'employer',
-      title: isAm ? 'የአሰሪው / የድርጅቱ ስም' : 'Employer / Organization Name',
-      label: isAm ? 'የድርጅቱ ወይም የአሰሪው ስም ማን ነው?' : 'What is your organization or company name?',
-      helpText: isAm ? 'ምሳሌ፡ አክሜ ሎጂስቲክስ።' : 'e.g. Acme Logistics.',
-      inputType: 'text',
-      required: true,
-      voiceEnabled: true,
-      placeholder: isAm ? 'ምሳሌ፡ አክሜ ሎጂስቲክስ' : 'e.g. Acme Logistics',
-      validation: (val) => (!val || String(val).trim().length < 2) ? (isAm ? 'እባክዎ የአሰሪውን ወይም የድርጅቱን ስም ያስገቡ።' : 'Please provide your organization or employer name.') : null
-    },
-    {
-      id: 'description',
-      title: isAm ? 'የሥራው መግለጫ' : 'Job Description',
-      label: isAm ? 'ዋና ዋና ተግባራትን እና የሥራውን ሁኔታ ያብራሩ።' : 'Describe responsibilities and work environment.',
-      helpText: isAm ? 'ዋና ተግባራትን፣ ስልጠናን ወይም ከቤት የመስራት ሁኔታን ይጥቀሱ።' : 'Explain responsibilities, training, and remote status.',
-      inputType: 'textarea',
-      required: true,
-      voiceEnabled: true,
-      placeholder: isAm ? 'ዋና ተግባራትን ያብራሩ...' : 'Describe responsibilities and qualifications...',
-      validation: (val) => (!val || String(val).trim().length < 5) ? (isAm ? 'እባክዎ ዝርዝር የስራ መግለጫ ያስገቡ (ቢያንስ 5 ፊደላት)።' : 'Please provide a brief job description (at least 5 characters).') : null
-    },
-    {
-      id: 'accommodations',
-      title: isAm ? 'የሚሰጡት ድጋፎች' : 'Accommodations Provided',
-      label: isAm ? 'ድርጅትዎ የሚያዘጋጃቸውን ሁሉ ይምረጡ።' : 'Select accommodations your workplace provides:',
-      helpText: isAm ? 'የሚያዘጋጇቸውን ድጋፎች ይምረጡ።' : 'Select all adjustments you offer.',
-      inputType: 'checkbox',
-      required: false,
-      options: ACCOMMODATIONS.map(acc => ({
-        value: acc,
-        label: label('accommodation', acc, language),
-        icon: ACCOMMODATION_ICONS[acc] || '♿'
-      }))
+        <div class="ik-form-group">
+          <fieldset class="ik-fieldset">
+            <legend class="ik-legend">
+              ${pickLang('Accommodations Provided by Employer', 'የሚሰጡት ድጋፎች እና አመቺ ሁኔታዎች', language)}
+            </legend>
+            <p class="ik-help-text">
+              ${pickLang('Select all adjustments, accessible tools, and supportive work arrangements you support.', 'ድርጅትዎ ለሰራተኞች ወይም ለአመልካቾች የሚያዘጋጃቸውን ሁሉ ይምረጡ።', language)}
+            </p>
+            <div class="ik-accommodations-checkboxes ik-options-grid">
+              ${ACCOMMODATIONS.map((acc, i) => `
+                <div class="ik-option-card">
+                  <input type="checkbox" id="ik_acc_${i}" name="accommodations" value="${acc}" class="ik-checkbox-input">
+                  <label for="ik_acc_${i}" class="ik-option-label">
+                    <strong>${label('accommodation', acc, language)}</strong>
+                  </label>
+                </div>
+              `).join('')}
+            </div>
+            <p id="ik_job_acc_err" class="ik-field-error ik-hidden" role="alert"></p>
+          </fieldset>
+        </div>
+
+        <div id="ik_form_general_err" class="ik-error-alert ik-hidden" role="alert"></div>
+
+        <div class="ik-form-actions">
+          ${onCancel ? `
+            <button type="button" class="ik-btn ik-btn-secondary ik-cancel-btn">
+              ${t('cancel', language)}
+            </button>
+          ` : ''}
+          <button type="submit" class="ik-btn ik-btn-primary ik-submit-job-btn">
+            ${t('submit', language)}
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const form = container.querySelector('.ik-employer-form');
+  const titleInput = form.querySelector('#ik_job_title');
+  const employerInput = form.querySelector('#ik_job_employer');
+  const descInput = form.querySelector('#ik_job_description');
+
+  if (onCancel) {
+    const cancelBtn = form.querySelector('.ik-cancel-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+  }
+
+  // Toggle styling on option card checkboxes
+  form.querySelectorAll('.ik-option-card').forEach(card => {
+    const cb = card.querySelector('input[type="checkbox"]');
+    cb.addEventListener('change', () => {
+      if (cb.checked) card.classList.add('ik-selected');
+      else card.classList.remove('ik-selected');
+    });
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    // Clear previous errors
+    form.querySelectorAll('.ik-field-error').forEach(p => { p.textContent = ''; p.classList.add('ik-hidden'); });
+    form.querySelectorAll('.ik-input, .ik-textarea').forEach(inp => inp.removeAttribute('aria-invalid'));
+    const genErr = form.querySelector('#ik_form_general_err');
+    genErr.textContent = '';
+    genErr.classList.add('ik-hidden');
+
+    const title = titleInput.value.trim();
+    const employer = employerInput.value.trim();
+    const description = descInput.value.trim();
+    const selectedAccommodations = Array.from(form.querySelectorAll('input[name="accommodations"]:checked'))
+      .map(cb => cb.value);
+
+    let hasClientErrors = false;
+    if (!title) {
+      const err = form.querySelector('#ik_job_title_err');
+      err.textContent = pickLang('Please add a job title.', 'እባክዎ የስራውን መጠሪያ ያስገቡ።', language);
+      err.classList.remove('ik-hidden');
+      titleInput.setAttribute('aria-invalid', 'true');
+      hasClientErrors = true;
     }
-  ];
+    if (!employer) {
+      const err = form.querySelector('#ik_job_employer_err');
+      err.textContent = pickLang('Please add the employer name.', 'እባክዎ የአሰሪውን ስም ያስገቡ።', language);
+      err.classList.remove('ik-hidden');
+      employerInput.setAttribute('aria-invalid', 'true');
+      hasClientErrors = true;
+    }
+    if (!description) {
+      const err = form.querySelector('#ik_job_description_err');
+      err.textContent = pickLang('Please describe the job.', 'እባክዎ የስራውን መግለጫ ያስገቡ።', language);
+      err.classList.remove('ik-hidden');
+      descInput.setAttribute('aria-invalid', 'true');
+      hasClientErrors = true;
+    }
 
-  const engine = new StepEngine({
-    container: engineMount,
-    screens,
-    language,
-    isSimpleMode,
-    sessionId: 'ik_employer_post_draft',
-    onComplete: async (answers) => {
-      engineMount.textContent = '';
-      const loadDiv = h('div', 'ik-loading-indicator', null, [
-        h('div', 'ik-spinner'),
-        h('p', null, isAm ? 'ስራውን በመለጠፍ ላይ...' : 'Posting opportunity...')
-      ]);
-      engineMount.appendChild(loadDiv);
+    if (hasClientErrors) return;
 
-      try {
-        const payload = {
-          title: String(answers.title || '').trim(),
-          employer: String(answers.employer || '').trim(),
-          description: String(answers.description || '').trim(),
-          accommodations: Array.isArray(answers.accommodations) ? answers.accommodations : []
-        };
-        const created = await createJob(payload);
+    const submitBtn = form.querySelector('.ik-submit-job-btn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = t('submitting', language);
 
-        container.textContent = '';
-        const successCard = h('div', 'ik-success-card', null, [
-          h('div', 'ik-success-icon', '🎉'),
-          h('h2', 'ik-success-title', t('employerSuccess', language)),
-          h('p', 'ik-success-message', isAm
-            ? `"${created.title}" የተባለው ስራ በተሳካ ሁኔታ ተለጠፈ። አመልካቾች አሁን ማመልከት ይችላሉ።`
-            : `"${created.title}" has been posted successfully. Learners can now discover and apply.`),
-          h('div', 'ik-success-actions', null, [
-            btn('ik-btn ik-btn-primary ik-return-gateway-btn', isAm ? 'ወደ ስራዎች ዝርዝር ሂድ' : 'View in Career Gateway', () => {
-              if (onSuccess) onSuccess(created);
-            })
-          ])
-        ]);
-        container.appendChild(successCard);
+    try {
+      const created = await createJob({
+        title,
+        employer,
+        description,
+        accommodations: selectedAccommodations
+      });
 
-      } catch (err) {
-        engineMount.textContent = '';
-        const errMsg = (err.errors && err.errors._) ? err.errors._ : (err.message || 'Failed to post job.');
-        const errCard = h('div', 'ik-error-card', null, [
-          h('p', 'ik-error-msg', '⚠️ ' + errMsg),
-          btn('ik-btn ik-btn-primary', t('tryAgain', language), () => engine.render())
-        ]);
-        errCard.setAttribute('role', 'alert');
-        engineMount.appendChild(errCard);
+      container.innerHTML = `
+        <div class="ik-success-card" role="region" aria-live="polite">
+          <div class="ik-success-icon" aria-hidden="true">✅</div>
+          <h2 class="ik-success-title">${t('employerSuccess', language)}</h2>
+          <p class="ik-success-message">
+            <strong>${created.title}</strong> (${created.employer}) ${
+              pickLang('is now live. Job seekers can view accommodations and apply with voice or text.', 'በስኬት ተመዝግቧል። አመልካቾች አሁን ሊያዩት እና ሊያመለክቱበት ይችላሉ።', language)
+            }
+          </p>
+          <div class="ik-success-actions">
+            <button type="button" class="ik-btn ik-btn-primary ik-view-all-jobs">
+              ${pickLang('View in Job Listings', 'ወደ ስራዎች ዝርዝር ሂድ', language)}
+            </button>
+          </div>
+        </div>
+      `;
+
+      container.querySelector('.ik-view-all-jobs').addEventListener('click', () => {
+        if (onSuccess) onSuccess(created);
+      });
+
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = t('submit', language);
+
+      if (err.errors) {
+        Object.keys(err.errors).forEach(f => {
+          const fieldErr = form.querySelector('#ik_job_' + f + '_err');
+          if (fieldErr) {
+            fieldErr.textContent = err.errors[f];
+            fieldErr.classList.remove('ik-hidden');
+          } else {
+            genErr.textContent += (genErr.textContent ? '\n' : '') + err.errors[f];
+            genErr.classList.remove('ik-hidden');
+          }
+        });
+      } else {
+        genErr.textContent = err.message || 'Could not post job.';
+        genErr.classList.remove('ik-hidden');
       }
     }
   });
-
-  engine.render();
 }
+

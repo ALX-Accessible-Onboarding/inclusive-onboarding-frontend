@@ -1,6 +1,7 @@
-import { stopSpeaking } from '../features/read-aloud.js';
+import { speak, stopSpeaking, isSpeaking, isSpeechSupported } from '../features/read-aloud.js';
 import { startVoiceRecognition, isVoiceSupported } from '../features/voice-input.js';
-import { t } from '../labels.js';
+import { t, translateToAmharic } from '../labels.js';
+import { pickLang } from '../content-translations.js';
 
 export class QuestionScreen {
   constructor(config) {
@@ -20,6 +21,7 @@ export class QuestionScreen {
     this.error = null;
     this.isListening = false;
     this.activeRecognition = null;
+    this.isSpeakingNow = false;
     this.element = null;
   }
 
@@ -41,6 +43,48 @@ export class QuestionScreen {
     heading.setAttribute('tabindex', '-1');
     heading.textContent = this.config.title || this.config.label;
     header.appendChild(heading);
+
+    if (isSpeechSupported()) {
+      const readBtn = document.createElement('button');
+      readBtn.type = 'button';
+      readBtn.className = 'ik-btn ik-btn-icon ik-btn-read-aloud';
+      readBtn.setAttribute('aria-label', t('readAloud', lang) + ': ' + (this.config.title || this.config.label));
+      readBtn.innerHTML = '<span aria-hidden="true">🔊</span> <span class="ik-btn-label">' + t('readAloud', lang) + '</span>';
+      readBtn.addEventListener('click', () => {
+        if (this.isSpeakingNow) {
+          stopSpeaking();
+          this.isSpeakingNow = false;
+          readBtn.classList.remove('ik-speaking');
+        } else {
+          let textToRead = '';
+          if (typeof this.config.readAloudText === 'function') {
+            textToRead = this.config.readAloudText(lang);
+          } else if (this.config.readAloudText && typeof this.config.readAloudText === 'object') {
+            textToRead = this.config.readAloudText[lang] || this.config.readAloudText.en;
+          } else if (this.config.readAloudText) {
+            textToRead = this.config.readAloudText;
+          } else {
+            textToRead = (this.config.title || this.config.label || '') + '. ' + (this.config.helpText || '');
+          }
+
+          if (lang === 'am' || (typeof lang === 'string' && lang.startsWith('am'))) {
+            textToRead = translateToAmharic(textToRead);
+          }
+
+          this.isSpeakingNow = true;
+          readBtn.classList.add('ik-speaking');
+          speak(textToRead, {
+            language: lang,
+            onEnd: () => {
+              this.isSpeakingNow = false;
+              readBtn.classList.remove('ik-speaking');
+            }
+          });
+        }
+      });
+      header.appendChild(readBtn);
+    }
+
     el.appendChild(header);
 
     if (this.config.helpText) {
@@ -273,6 +317,19 @@ export class QuestionScreen {
 
         card.appendChild(input);
         card.appendChild(optLabel);
+        card.addEventListener('click', (e) => {
+          if (e.target !== input && !optLabel.contains(e.target)) {
+            if (isRadio) {
+              if (!input.checked) {
+                input.checked = true;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            } else {
+              input.checked = !input.checked;
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+        });
         grid.appendChild(card);
       });
 
@@ -308,7 +365,7 @@ export class QuestionScreen {
       const skipBtn = document.createElement('button');
       skipBtn.type = 'button';
       skipBtn.className = 'ik-btn ik-btn-secondary ik-btn-skip';
-      skipBtn.textContent = lang === 'am' ? 'ዘልለው ይለፉ' : 'Skip and add later';
+      skipBtn.textContent = pickLang('Skip and add later', 'ዘልለው ይለፉ', lang);
       skipBtn.addEventListener('click', () => {
         stopSpeaking();
         this.currentValue = '';
@@ -380,16 +437,16 @@ export class QuestionScreen {
     if (this.config.required) {
       if (this.config.inputType === 'checkbox') {
         if (!Array.isArray(this.currentValue) || this.currentValue.length === 0) {
-          this.showError(isAm ? 'እባክዎ ለመቀጠል ቢያንስ አንድ አማራጭ ይምረጡ።' : 'Please select at least one option to continue.');
+          this.showError(pickLang('Please select at least one option to continue.', 'እባክዎ ለመቀጠል ቢያንስ አንድ አማራጭ ይምረጡ።', lang));
           return false;
         }
       } else if (this.config.inputType === 'radio') {
         if (!this.currentValue) {
-          this.showError(isAm ? 'እባክዎ ለመቀጠል አንዱን ይምረጡ።' : 'Please choose an option to continue.');
+          this.showError(pickLang('Please choose an option to continue.', 'እባክዎ ለመቀጠል አንዱን ይምረጡ።', lang));
           return false;
         }
       } else if (this.currentValue === undefined || this.currentValue === null || !String(this.currentValue).trim()) {
-        this.showError(isAm ? 'ይህ ጥያቄ መመለስ አለበት። እባክዎ መልስዎን ያስገቡ።' : 'This question is required. Please provide an answer.');
+        this.showError(pickLang('This question is required. Please provide an answer.', 'ይህ ጥያቄ መመለስ አለበት። እባክዎ መልስዎን ያስገቡ።', lang));
         return false;
       }
     }

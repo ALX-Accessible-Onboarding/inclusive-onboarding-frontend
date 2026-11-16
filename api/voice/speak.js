@@ -3,21 +3,32 @@
 /**
  * Vercel Serverless Function: /api/voice/speak
  *
- * Amharic-only text-to-speech. English is never sent here: the frontend
- * speaks English locally with browser SpeechSynthesis.
+ * Remote text-to-speech for Amharic, Somali, and Tigrinya. English
+ * is never sent here: the frontend speaks English locally with
+ * browser SpeechSynthesis. Afaan Oromoo has no voice in any
+ * reachable service (no Edge voice; absent from the Gemini TTS
+ * language list and the ElevenLabs v4 list, all verified
+ * 2026-11-15) and is rejected, never spoken with another
+ * language's voice. Tigrinya has no Edge voice either; it is
+ * served by Gemini TTS only, which lists Tigrinya on its flagship
+ * model (see the model note below).
  *
- *   GET  -> health check: { available, language: 'am', provider,
- *           geminiConfigured } (no key is exposed)
- *   POST -> { text, language: 'am' } -> audio (MP3 from Edge TTS, or WAV
- *           from Gemini TTS when it serves the request)
+ *   GET  -> health check: { available, language: 'am',
+ *           languages: ['am', 'so', 'ti'], provider, geminiConfigured }
+ *           (no key is exposed)
+ *   POST -> { text, language: 'am' | 'so' | 'ti' } -> audio (MP3 from
+ *           Edge TTS, or WAV from Gemini TTS for fallback and for
+ *           Tigrinya)
  *
  * Providers, in order (VOICE_PROVIDER env var, default 'auto'):
  *   - 'auto' (default): Microsoft Edge online TTS first — native Amharic
- *     voices (am-ET-MekdesNeural / am-ET-AmehaNeural), no API key needed.
+ *     voices (am-ET-MekdesNeural / am-ET-AmehaNeural) and native Somali
+ *     voices (so-SO-UbaxNeural / so-SO-MuuseNeural), no API key needed.
  *     If Edge fails and a Gemini key is configured, Gemini TTS serves
- *     the request instead. If neither works, the caller gets a stable
+ *     the request instead. Tigrinya skips Edge entirely (no voice) and
+ *     goes straight to Gemini. If neither works, the caller gets a stable
  *     error, never silence and never an English voice.
- *   - 'edge': Edge TTS only.
+ *   - 'edge': Edge TTS only (Amharic and Somali only).
  *   - 'gemini': Gemini TTS only (the original behaviour).
  *
  * Edge TTS is an unofficial service (it powers Edge's Read Aloud
@@ -29,9 +40,9 @@
  * - GEMINI_API_KEY is read only from server-side environment variables. It is
  *   never returned, logged, or placed in a URL (it travels in the
  *   x-goog-api-key header to Google only).
- * - Requests are validated: language must be Amharic, text is capped, and
- *   the model/voices come from server environment variables, never from
- *   the client.
+ * - Requests are validated: language must be Amharic, Somali, or
+ *   Tigrinya, text is capped, and the model/voices come from server
+ *   environment variables, never from the client.
  * - User text is never logged. Logs carry only method, status, provider
  *   and lengths.
  * - Upstream error bodies are never echoed back (they could leak details);
@@ -48,11 +59,11 @@
  *       content: [{ type: 'text', text }] }],
  *     response_format: { type: 'audio' },
  *     generation_config: { speech_config: [{ voice: voiceName }] } }
- * The language is auto-detected from the Amharic text; no language field is
+ * The language is auto-detected from the text; no language field is
  * sent. Every request carries one short, constant speech_metadata style
- * annotation steering native Ethiopian Amharic delivery (the guide says
- * style guides accent, pace and tone; the transcript itself stays
- * verbatim). Override it with GEMINI_TTS_STYLE, or set GEMINI_TTS_STYLE
+ * annotation steering native delivery in the request's language (the
+ * guide says style guides accent, pace and tone; the transcript itself
+ * stays verbatim). Override it with GEMINI_TTS_STYLE, or set GEMINI_TTS_STYLE
  * to "none" to send no annotation. The stronger lever for accent is the
  * voice itself: GEMINI_TTS_VOICE accepts a prebuilt name (default Kore),
  * a Voice design/remix ID (voice_...), or an Extended Voice Library ID
@@ -70,9 +81,14 @@
  * guide recommends for read-aloud features and the replacement for
  * gemini-3.1-flash-tts-preview (shut down on the Gemini API on 17 Nov
  * 2026). Amharic is listed as supported by BOTH 3.8 models in the guide's
- * Supported languages table. Older preview models are rejected: their
- * request/response shapes differ and their Amharic support is not in the
- * current guide. See VOICE-ASSISTANT.md.
+ * Supported languages table. Tigrinya and Somali are listed ONLY on the
+ * flagship gemini-3.8-flash-tts (verified against the guide's table on
+ * 2026-11-15), so a request in either language is always sent to the
+ * flagship model, even when GEMINI_TTS_MODEL names the Lite model —
+ * sending it to Lite would ask a model that does not list the language.
+ * Older preview models are rejected: their request/response shapes differ
+ * and their language support is not in the current guide. See
+ * VOICE-ASSISTANT.md.
  */
 
 var edgeTts = require('./edge-tts.js');
@@ -82,22 +98,44 @@ var ALLOWED_MODELS = [
   'gemini-3.8-flash-lite-tts'
 ];
 var DEFAULT_MODEL = 'gemini-3.8-flash-lite-tts';
+var FLASH_MODEL = 'gemini-3.8-flash-tts';
+// Languages the Gemini guide lists ONLY on the flagship model (see the
+// header note). A request in one of these languages is always sent to
+// the flagship model, whatever GEMINI_TTS_MODEL says.
+var FLASH_ONLY_LANGUAGES = { ti: true, so: true };
 var DEFAULT_VOICE = 'Kore';
 // One short, constant style for every Amharic turn: the guide recommends a
 // single short string reused across turns. It steers delivery only; the
 // transcript is always sent verbatim.
-var DEFAULT_STYLE = 'Native Ethiopian Amharic accent, natural pronunciation, clear and calm, at a natural pace.';
+var DEFAULT_STYLE = 'Native Ethiopian Amharic accent, natural pronunciation, clear and calm, speaking slowly at a natural pace that is easy to hear and understand.';
+var TIGRINYA_STYLE = 'Native Tigrinya accent, natural pronunciation, clear and calm, speaking slowly at a natural pace that is easy to hear and understand.';
+var SOMALI_STYLE = 'Native Somali accent, natural pronunciation, clear and calm, speaking slowly at a natural pace that is easy to hear and understand.';
 var MAX_STYLE_LENGTH = 300;
 var MAX_TEXT_LENGTH = 2000;
 var MAX_BODY_LENGTH = 8192;
 var UPSTREAM_TIMEOUT_MS = 25000;
 var EDGE_TIMEOUT_MS = 12000;
 var FALLBACK_TIMEOUT_MS = 12000;
+// Hard budget for the whole provider chain (Edge + Gemini fallback).
+// Must stay below the function's maxDuration (30s in vercel.json) with
+// margin for the response to flush: if a provider hangs without ever
+// settling, this race — not the platform kill — answers the caller.
+var HANDLER_TIMEOUT_MS = 25000;
 var INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 function getModel(env) {
   var model = (env.GEMINI_TTS_MODEL || '').trim() || DEFAULT_MODEL;
   return ALLOWED_MODELS.indexOf(model) !== -1 ? model : null;
+}
+
+// The model for one language: the configured model, upgraded to the
+// flagship model when the language is listed only there. Returns null
+// when the configured model is not allowlisted (misconfiguration).
+function getModelForLanguage(env, language) {
+  var model = getModel(env);
+  if (!model) return null;
+  if (FLASH_ONLY_LANGUAGES[language] && model !== FLASH_MODEL) return FLASH_MODEL;
+  return model;
 }
 
 function getVoice(env) {
@@ -120,6 +158,20 @@ function getStyle(env) {
   if (style.length > MAX_STYLE_LENGTH) return false;
   if (/[\u0000-\u001F\u007F]/.test(style)) return false; // single-line instruction: no control characters at all
   return style;
+}
+
+// The style for one language: an explicit GEMINI_TTS_STYLE (including
+// 'none') always wins; otherwise the per-language default, so a
+// Tigrinya or Somali turn is never steered with the Amharic accent
+// instruction. Same return contract as getStyle.
+function getStyleForLanguage(env, language) {
+  var raw = env.GEMINI_TTS_STYLE;
+  if (raw === undefined || raw === null || !String(raw).trim()) {
+    if (language === 'ti') return TIGRINYA_STYLE;
+    if (language === 'so') return SOMALI_STYLE;
+    return DEFAULT_STYLE;
+  }
+  return getStyle(env);
 }
 
 function getApiKey(env) {
@@ -177,8 +229,18 @@ function validateVoiceRequest(body) {
     return { error: { status: 400, code: 'voice_bad_request', message: 'Request body must be a JSON object.' } };
   }
   var language = typeof body.language === 'string' ? body.language.trim().toLowerCase() : '';
-  if (language !== 'am' && language !== 'am-et') {
-    return { error: { status: 400, code: 'voice_language_not_supported', message: 'Only Amharic (am) is supported by this endpoint. English is spoken locally in the browser.' } };
+  // Remote voices exist for Amharic and Somali (Edge + Gemini) and for
+  // Tigrinya (Gemini flagship only — no Edge voice; verified against
+  // the live Edge voices list and the Gemini TTS language table on
+  // 2026-11-15). Afaan Oromoo has no voice in any reachable service
+  // and is rejected honestly instead of being spoken with another
+  // language's voice. English is spoken locally in the browser.
+  var resolved = null;
+  if (language === 'am' || language === 'am-et') resolved = 'am';
+  else if (language === 'so' || language === 'so-so') resolved = 'so';
+  else if (language === 'ti' || language === 'ti-et') resolved = 'ti';
+  if (!resolved) {
+    return { error: { status: 400, code: 'voice_language_not_supported', message: 'Only Amharic (am), Somali (so), and Tigrinya (ti) are supported by this endpoint. English is spoken locally in the browser.' } };
   }
   if (typeof body.text !== 'string') {
     return { error: { status: 400, code: 'voice_bad_request', message: 'Field "text" must be a string.' } };
@@ -194,7 +256,7 @@ function validateVoiceRequest(body) {
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
     return { error: { status: 400, code: 'voice_bad_request', message: 'Field "text" contains unsupported characters.' } };
   }
-  return { text: text, language: 'am' };
+  return { text: text, language: resolved };
 }
 
 function parseSampleRate(mimeType) {
@@ -274,6 +336,28 @@ function upstreamFailure(status, code, message, retryAfter) {
   err.code = code;
   if (retryAfter) err.retryAfter = retryAfter;
   return err;
+}
+
+// Race a provider attempt against a REF'D timer: the timer is deliberately
+// never unref'd, so on serverless runtimes it fires even if the provider's
+// own socket and timers stall. The handler always answers within ms — a
+// fast stable error — instead of hanging until the platform kills it.
+// The losing promise is left to settle on its own; its socket cannot
+// block the response once the race has decided.
+function withTimeout(promise, ms) {
+  return new Promise(function (resolve, reject) {
+    var timerId = setTimeout(function () {
+      reject(upstreamFailure(502, 'voice_upstream_timeout',
+        'The voice service timed out. Please try again.'));
+    }, ms);
+    promise.then(function (value) {
+      clearTimeout(timerId);
+      resolve(value);
+    }, function (err) {
+      clearTimeout(timerId);
+      reject(err);
+    });
+  });
 }
 
 // Gemini TTS synthesis. Resolves with a WAV Buffer, or rejects with an
@@ -392,6 +476,7 @@ async function handler(req, res) {
     sendJson(res, 200, JSON.stringify({
       available: available,
       language: 'am',
+      languages: ['am', 'so', 'ti'],
       provider: provider || 'auto',
       geminiConfigured: geminiReady
     }));
@@ -421,22 +506,51 @@ async function handler(req, res) {
   }
 
   var providerName = getProvider(env);
-  var edgeVoice = getEdgeVoice(env);
+  var edgeVoice = edgeTts.getEdgeVoiceFor(env, validated.language);
   var edgeWsUrl = getEdgeWsUrl(env);
   var usesEdge = providerName === 'auto' || providerName === 'edge';
-  if (!providerName || (usesEdge && (!edgeVoice || edgeWsUrl === false))) {
+  if (!providerName || edgeWsUrl === false) {
     logEvent({ method: 'POST', status: 500, code: 'voice_misconfigured' });
     sendError(res, 500, 'voice_misconfigured', 'The voice service is misconfigured on the server.');
     return;
   }
 
   var apiKey = getApiKey(env);
-  var model = getModel(env);
+  var model = getModelForLanguage(env, validated.language);
   var voice = getVoice(env);
-  var style = getStyle(env);
+  var style = getStyleForLanguage(env, validated.language);
   var geminiReady = Boolean(apiKey) && Boolean(model) && Boolean(voice) && style !== false;
 
-  // Gemini-only mode keeps the original behaviour exactly.
+  // No Edge voice for this language (Tigrinya): in 'edge' mode that is
+  // an honest rejection, in 'auto' mode Gemini is the only path and
+  // must be configured, otherwise the caller would get a misleading
+  // upstream error for what is really a missing key.
+  if (usesEdge && !edgeVoice) {
+    if (edgeTts.EDGE_VOICES_BY_LANG[validated.language]) {
+      // The language HAS Edge voices, so a null voice means the env
+      // override names a voice from another language: misconfigured,
+      // exactly as before.
+      logEvent({ method: 'POST', status: 500, code: 'voice_misconfigured' });
+      sendError(res, 500, 'voice_misconfigured', 'The voice service is misconfigured on the server.');
+      return;
+    }
+    if (providerName === 'edge') {
+      logEvent({ method: 'POST', status: 400, code: 'voice_language_not_supported' });
+      sendError(res, 400, 'voice_language_not_supported', 'Edge TTS has no voice for this language. Use the default provider setting or Gemini mode.');
+      return;
+    }
+    if (!geminiReady) {
+      logEvent({ method: 'POST', status: 503, code: 'voice_not_configured', textLength: validated.text.length });
+      sendError(res, 503, 'voice_not_configured', 'The voice service is not configured on the server (GEMINI_API_KEY is missing).');
+      return;
+    }
+  }
+
+  // Gemini-only mode serves every language the endpoint accepts: the
+  // Gemini TTS guide lists Amharic on both 3.8 models and Tigrinya
+  // and Somali on the flagship model (verified 2026-11-15), and the
+  // per-language model/style selection above routes each request to
+  // the model and accent instruction that cover it.
   if (providerName === 'gemini') {
     if (!apiKey) {
       logEvent({ method: 'POST', status: 503, code: 'voice_not_configured', textLength: validated.text.length });
@@ -463,41 +577,67 @@ async function handler(req, res) {
   }
 
   // Edge first; Gemini fallback in 'auto' mode when a key is configured.
-  var edgeErr = null;
-  var audio = null;
-  var usedProvider = null;
-  try {
-    audio = await edgeTts.synthesizeWithEdge({
-      text: validated.text, voice: edgeVoice, timeoutMs: EDGE_TIMEOUT_MS, wsBaseUrl: edgeWsUrl
-    });
-    usedProvider = 'edge';
-  } catch (err) {
-    edgeErr = err;
-  }
-
-  if (!audio && providerName === 'auto' && geminiReady) {
-    try {
-      audio = await synthesizeWithGemini({
-        text: validated.text, apiKey: apiKey, model: model, voice: voice,
-        style: style, timeoutMs: FALLBACK_TIMEOUT_MS
-      });
-      usedProvider = 'gemini';
-    } catch (err) {
-      logEvent({ method: 'POST', status: err.status || 502, code: err.code || 'voice_upstream_error', provider: 'gemini', edgeCode: edgeErr && edgeErr.code, durationMs: Date.now() - startedAt, textLength: validated.text.length });
-      sendError(res, err.status || 502, err.code || 'voice_upstream_error', err.message,
-        err.retryAfter ? { 'Retry-After': err.retryAfter } : null);
-      return;
+  // The whole chain runs under one hard timeout (HANDLER_TIMEOUT_MS): if
+  // a provider hangs without settling — Edge TTS never answered from
+  // Vercel's network on 2026-11-14 and the request hung until Vercel
+  // killed the function at maxDuration — the caller still gets a fast,
+  // stable error instead of silence.
+  async function runProviders() {
+    var edgeErr = null;
+    var audio = null;
+    var usedProvider = null;
+    // Edge has no voice for Tigrinya: edgeVoice is null and the Edge
+    // attempt is skipped entirely, never made with another
+    // language's voice.
+    if (edgeVoice) {
+      try {
+        audio = await edgeTts.synthesizeWithEdge({
+          text: validated.text, voice: edgeVoice, timeoutMs: EDGE_TIMEOUT_MS, wsBaseUrl: edgeWsUrl
+        });
+        usedProvider = 'edge';
+      } catch (err) {
+        edgeErr = err;
+      }
     }
+
+    // Gemini fallback in 'auto' mode, for every language the endpoint
+    // serves (the per-language model/style above route each language
+    // to the model that lists it). For Tigrinya this is the only
+    // path, and the guard above already required a configured key.
+    if (!audio && providerName === 'auto' && geminiReady) {
+      try {
+        audio = await synthesizeWithGemini({
+          text: validated.text, apiKey: apiKey, model: model, voice: voice,
+          style: style, timeoutMs: FALLBACK_TIMEOUT_MS
+        });
+        usedProvider = 'gemini';
+      } catch (err) {
+        err.provider = 'gemini';
+        err.edgeCode = edgeErr && edgeErr.code;
+        throw err;
+      }
+    }
+
+    if (!audio) {
+      var err = upstreamFailure(502, (edgeErr && edgeErr.code) || 'edge_unreachable',
+        (edgeErr && edgeErr.message) || 'The voice service could not be reached. Please try again.');
+      err.provider = 'edge';
+      throw err;
+    }
+    return { audio: audio, usedProvider: usedProvider };
   }
 
-  if (!audio) {
-    logEvent({ method: 'POST', status: 502, code: (edgeErr && edgeErr.code) || 'edge_unreachable', provider: 'edge', durationMs: Date.now() - startedAt, textLength: validated.text.length });
-    sendError(res, 502, (edgeErr && edgeErr.code) || 'edge_unreachable',
-      (edgeErr && edgeErr.message) || 'The voice service could not be reached. Please try again.');
+  var result;
+  try {
+    result = await withTimeout(runProviders(), HANDLER_TIMEOUT_MS);
+  } catch (err) {
+    logEvent({ method: 'POST', status: err.status || 502, code: err.code || 'voice_upstream_error', provider: err.provider || 'chain', edgeCode: err.edgeCode, durationMs: Date.now() - startedAt, textLength: validated.text.length });
+    sendError(res, err.status || 502, err.code || 'voice_upstream_error', err.message,
+      err.retryAfter ? { 'Retry-After': err.retryAfter } : null);
     return;
   }
 
-  sendAudio(res, audio, usedProvider === 'edge' ? 'audio/mpeg' : 'audio/wav', usedProvider, startedAt, validated.text.length);
+  sendAudio(res, result.audio, result.usedProvider === 'edge' ? 'audio/mpeg' : 'audio/wav', result.usedProvider, startedAt, validated.text.length);
 }
 
 module.exports = handler;
@@ -508,8 +648,15 @@ module.exports.extractAudioData = extractAudioData;
 module.exports.parseSampleRate = parseSampleRate;
 module.exports.getVoice = getVoice;
 module.exports.getStyle = getStyle;
+module.exports.getModelForLanguage = getModelForLanguage;
+module.exports.getStyleForLanguage = getStyleForLanguage;
+module.exports.TIGRINYA_STYLE = TIGRINYA_STYLE;
+module.exports.SOMALI_STYLE = SOMALI_STYLE;
+module.exports.FLASH_MODEL = FLASH_MODEL;
 module.exports.getProvider = getProvider;
 module.exports.getEdgeWsUrl = getEdgeWsUrl;
+module.exports.withTimeout = withTimeout;
+module.exports.HANDLER_TIMEOUT_MS = HANDLER_TIMEOUT_MS;
 module.exports.DEFAULT_VOICE = DEFAULT_VOICE;
 module.exports.DEFAULT_STYLE = DEFAULT_STYLE;
 module.exports.ALLOWED_MODELS = ALLOWED_MODELS;

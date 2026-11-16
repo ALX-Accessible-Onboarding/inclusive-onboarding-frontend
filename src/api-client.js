@@ -251,6 +251,13 @@ export function createJob(job) {
 export async function createLearner(data) {
   if (isLive()) {
     const payload = Object.assign({}, data);
+    const chosenLang = payload.language;
+    // The remote backend schema restricts 'language' enum to ['en', 'am'].
+    // Sending other languages (e.g. 'so', 'om', 'ti') results in a 500 error on the server.
+    // Map to a backend-safe language while preserving the user's selected language locally.
+    const backendLang = (payload.language === 'am' || payload.language === 'ti') ? 'am' : 'en';
+    payload.language = backendLang;
+
     if (payload.contact && payload.contact.type === 'phone' && payload.contact.value) {
       let digits = String(payload.contact.value).replace(/[^0-9]/g, '');
       if (digits.startsWith('251') && digits.length === 12) digits = '0' + digits.slice(3);
@@ -259,8 +266,14 @@ export async function createLearner(data) {
 
     try {
       const learner = await request('POST', '/learners', payload);
-      if (learner && learner.id) db.learners[learner.id] = Object.assign({}, payload, learner);
-      return learner;
+      if (learner && learner.id) {
+        if (chosenLang) {
+          try { localStorage.setItem('ik_learner_lang_' + learner.id, chosenLang); } catch (e) {}
+          learner.language = chosenLang;
+        }
+        db.learners[learner.id] = Object.assign({}, payload, learner, { language: chosenLang || learner.language });
+      }
+      return Object.assign({}, learner, { language: chosenLang || learner.language });
     } catch (e) {
       if (e && e.status === 409) {
         const rawId = (e.errors && e.errors.existingId) || e.existingId;
@@ -361,6 +374,10 @@ export async function getLearner(id) {
       try {
         const learner = await request('GET', '/learners/' + enc(id));
         if (learner) {
+          try {
+            const savedLang = localStorage.getItem('ik_learner_lang_' + id);
+            if (savedLang) learner.language = savedLang;
+          } catch (e) {}
           db.learners[id] = learner;
           return learner;
         }
@@ -389,12 +406,22 @@ export async function patchLearner(id, patch) {
     return learner;
   }
 
+  const patchPayload = Object.assign({}, patch);
+  const chosenLang = patchPayload.language;
+  if (chosenLang) {
+    patchPayload.language = (chosenLang === 'am' || chosenLang === 'ti') ? 'am' : 'en';
+  }
+
   let res = null;
   if (typeof id === 'string' && /^lrn_[0-9a-f]{24}$/i.test(id)) {
-    try { res = await request('PATCH', '/learners/' + enc(id), patch); } catch (e) {}
+    try { res = await request('PATCH', '/learners/' + enc(id), patchPayload); } catch (e) {}
   }
   const current = db.learners[id] || { id, name: 'Learner', contact: { type: 'phone', value: '0912345678' } };
   Object.assign(current, patch, res || {});
+  if (chosenLang) {
+    current.language = chosenLang;
+    try { localStorage.setItem('ik_learner_lang_' + id, chosenLang); } catch (e) {}
+  }
   db.learners[id] = current;
   try { localStorage.setItem('ik_learner_' + id, JSON.stringify(current)); } catch (e) {}
   return current;

@@ -23,10 +23,10 @@ const concatGzip = zlib.gzipSync(Buffer.concat([jsBuffer, cssBuffer])).length;
 
 // Budget Limits:
 // Base kit budget (without voice guide): 100 KB raw / 30 KB gzip
-// Full voice-enabled kit budget: 160 KB raw / 50 KB gzip
+// Full multi-lingual voice-enabled kit budget (5 languages: EN, AM, SO, OM, TI): 280 KB raw / 80 KB gzip
 const isStrict = process.env.STRICT_BUDGET === 'true' || process.env.STRICT_BUDGET === '1';
-const MAX_RAW_BYTES = isStrict ? 102400 : 163840; // 100 KB strict, 160 KB full
-const MAX_GZIP_BYTES = isStrict ? 30720 : 51200;  // 30 KB strict, 50 KB gzip
+const MAX_RAW_BYTES = isStrict ? 102400 : 286720; // 100 KB strict, 280 KB multi-lingual
+const MAX_GZIP_BYTES = isStrict ? 30720 : 81920;  // 30 KB strict, 80 KB gzip
 
 console.log('\n======================================================');
 console.log('       INCLUSIVE ACCESS KIT - BUNDLE SIZE CHECK       ');

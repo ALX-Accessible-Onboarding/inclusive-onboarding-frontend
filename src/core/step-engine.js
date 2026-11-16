@@ -2,6 +2,7 @@ import { QuestionScreen } from './question-screen.js';
 import { ProgressStore, sanitizeDraftAnswers } from './progress-store.js';
 import { speak, isSpeaking, stopSpeaking } from '../features/read-aloud.js';
 import { translateToAmharic } from '../labels.js';
+import { pickLang, fillPattern } from '../content-translations.js';
 
 /**
  * StepEngine: manages sequential question screens, progress, and state.
@@ -20,6 +21,7 @@ export class StepEngine {
     this.onCancel = options.onCancel || null;
     this.onSaveDraft = options.onSaveDraft || null;
     this.onClearDraft = options.onClearDraft || null;
+    this.onAnswerChange = options.onAnswerChange || null;
     this.draftRestored = Boolean(options.draftRestored);
 
     this.currentStep = this.initialStep;
@@ -80,14 +82,13 @@ export class StepEngine {
 
     // Draft Restored Banner (shown once if answers were restored from localStorage)
     if (this.draftRestored) {
-      const isAm = this.language === 'am' || String(this.language).startsWith('am');
       const draftBanner = document.createElement('div');
       draftBanner.className = 'ik-draft-banner';
       draftBanner.setAttribute('role', 'status');
       draftBanner.setAttribute('aria-live', 'polite');
       draftBanner.innerHTML = `
-        <span>📝 <strong>${isAm ? 'የተቀመጠው ረቂቅ መረጃዎ ተመልሷል' : 'Restored your draft answers'}</strong> (${isAm ? 'ደረጃ ' + stepNumber : 'Step ' + stepNumber})</span>
-        <button type="button" class="ik-draft-banner-btn">${isAm ? 'አዲስ ጀምር' : 'Start over'}</button>
+        <span>📝 <strong>${pickLang('Restored your draft answers', 'የተቀመጠው ረቂቅ መረጃዎ ተመልሷል', this.language)}</strong> (${fillPattern(pickLang('Step {n}', 'ደረጃ {n}', this.language), { n: stepNumber })})</span>
+        <button type="button" class="ik-btn ik-draft-banner-btn">${pickLang('Start over', 'አዲስ ጀምር', this.language)}</button>
       `;
       draftBanner.querySelector('.ik-draft-banner-btn').addEventListener('click', () => {
         if (typeof this.onClearDraft === 'function') {
@@ -102,18 +103,23 @@ export class StepEngine {
     }
 
     // Progress Bar & Live Announcement
+    const stepOfText = fillPattern(
+      pickLang('Step {step} of {total}', 'ደረጃ {step} ከ {total}', this.language),
+      { step: stepNumber, total: totalSteps }
+    );
+
     const progressContainer = document.createElement('div');
     progressContainer.className = 'ik-step-progress-bar';
 
     const liveRegion = document.createElement('div');
     liveRegion.className = 'ik-sr-only';
     liveRegion.setAttribute('aria-live', 'polite');
-    liveRegion.textContent = `Step ${stepNumber} of ${totalSteps}: ${screenConfig.title || screenConfig.label}`;
+    liveRegion.textContent = `${stepOfText}: ${screenConfig.title || screenConfig.label}`;
     progressContainer.appendChild(liveRegion);
 
     const progressText = document.createElement('div');
     progressText.className = 'ik-progress-text';
-    progressText.innerHTML = `<span><strong>Step ${stepNumber} of ${totalSteps}</strong></span>`;
+    progressText.innerHTML = `<span><strong>${stepOfText}</strong></span>`;
     progressContainer.appendChild(progressText);
 
     const meter = document.createElement('div');
@@ -175,6 +181,9 @@ export class StepEngine {
       onChange: (val) => {
         this.answers[screenConfig.id] = val;
         this.saveDraft();
+        if (typeof this.onAnswerChange === 'function') {
+          this.onAnswerChange(screenConfig.id, val, this.answers);
+        }
       },
       onNext: async (val) => {
         this.answers[screenConfig.id] = val;

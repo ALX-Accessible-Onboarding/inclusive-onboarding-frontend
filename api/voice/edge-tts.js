@@ -49,12 +49,41 @@ var USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
 var EDGE_VOICES = ['am-ET-MekdesNeural', 'am-ET-AmehaNeural'];
 var DEFAULT_EDGE_VOICE = 'am-ET-MekdesNeural';
+// Verified against the live Edge voices list on 2026-11-15 (318
+// voices, 142 locales): Somali has two neural voices; Afaan Oromoo
+// and Tigrinya have NONE — no om-ET or ti-ET locale exists in the
+// service, so those languages cannot be spoken remotely. They are
+// deliberately absent here: a language with no voice must never be
+// given another language's voice.
+var EDGE_VOICES_BY_LANG = {
+  am: ['am-ET-MekdesNeural', 'am-ET-AmehaNeural'],
+  so: ['so-SO-UbaxNeural', 'so-SO-MuuseNeural']
+};
+var DEFAULT_EDGE_VOICE_BY_LANG = {
+  am: 'am-ET-MekdesNeural',
+  so: 'so-SO-UbaxNeural'
+};
 var MAX_CHUNK_BYTES = 4096;
 var DEFAULT_TIMEOUT_MS = 12000;
 
 function getEdgeVoice(env) {
-  var voice = (env.EDGE_TTS_VOICE || '').trim() || DEFAULT_EDGE_VOICE;
-  return EDGE_VOICES.indexOf(voice) !== -1 ? voice : null;
+  return getEdgeVoiceFor(env, 'am');
+}
+
+// The Edge voice for one language: a per-language env override
+// (EDGE_TTS_VOICE_SO, or the legacy EDGE_TTS_VOICE for Amharic),
+// else the language's female default. An override naming a voice
+// from another language, or a language with no voices, resolves to
+// null so the caller fails honestly instead of speaking the wrong
+// language.
+function getEdgeVoiceFor(env, lang) {
+  var list = EDGE_VOICES_BY_LANG[lang];
+  if (!list) return null;
+  var override = lang === 'am'
+    ? (env.EDGE_TTS_VOICE || '').trim()
+    : (env['EDGE_TTS_VOICE_' + lang.toUpperCase()] || '').trim();
+  var voice = override || DEFAULT_EDGE_VOICE_BY_LANG[lang];
+  return list.indexOf(voice) !== -1 ? voice : null;
 }
 
 // The service rejects a few control-character ranges; edge-tts replaces
@@ -97,7 +126,9 @@ function buildConfigMessage() {
 function buildSsml(voice, escapedText) {
   return "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>"
     + "<voice name='" + voice + "'>"
-    + "<prosody pitch='+0Hz' rate='+0%' volume='+0%'>"
+    // Human pace: 5% slower than the service default, matching the
+    // local speech rate (0.95), so Amharic is easy to hear and follow.
+    + "<prosody pitch='+0Hz' rate='-5%' volume='+0%'>"
     + escapedText
     + '</prosody></voice></speak>';
 }
@@ -253,10 +284,14 @@ function synthesizeChunkOnce(chunkText, voice, timeoutMs, wsBaseUrl, WebSocketIm
       settle(resolve, Buffer.concat(audioParts, audioBytes));
     }
 
+    // Deliberately NOT unref'd: an unref'd timer is not guaranteed to
+    // fire on serverless runtimes once the event loop has no other ref'd
+    // work, and this timeout is the only rescue when the service accepts
+    // the connection and then never answers. Keep it ref'd so the rescue
+    // always runs.
     var timerId = setTimeout(function () {
       fail(edgeError('edge_timeout', 'The Edge voice service timed out.'));
     }, timeoutMs);
-    if (timerId.unref) timerId.unref();
 
     try {
       ws = new WS(buildWsUrl(wsBaseUrl), { headers: buildWsHeaders(), handshakeTimeout: timeoutMs });
@@ -386,6 +421,7 @@ async function synthesizeWithEdge(options) {
 module.exports = {
   synthesizeWithEdge: synthesizeWithEdge,
   getEdgeVoice: getEdgeVoice,
+  getEdgeVoiceFor: getEdgeVoiceFor,
   buildConfigMessage: buildConfigMessage,
   buildSsml: buildSsml,
   buildSsmlMessage: buildSsmlMessage,
@@ -396,7 +432,9 @@ module.exports = {
   parseTextMessage: parseTextMessage,
   parseBinaryMessage: parseBinaryMessage,
   EDGE_VOICES: EDGE_VOICES,
+  EDGE_VOICES_BY_LANG: EDGE_VOICES_BY_LANG,
   DEFAULT_EDGE_VOICE: DEFAULT_EDGE_VOICE,
+  DEFAULT_EDGE_VOICE_BY_LANG: DEFAULT_EDGE_VOICE_BY_LANG,
   MAX_CHUNK_BYTES: MAX_CHUNK_BYTES,
   WSS_BASE: WSS_BASE,
   SEC_MS_GEC_VERSION: SEC_MS_GEC_VERSION

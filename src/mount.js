@@ -67,13 +67,19 @@ export class InclusiveKitInstance {
     const storedLearnerId = getLearnerId() || (() => {
       try { return localStorage.getItem('inclusive_learner_id') || localStorage.getItem('ik_current_learner_id'); } catch (e) { return null; }
     })();
+    const storedLang = (() => {
+      try { return localStorage.getItem('ik_current_language'); } catch (e) { return null; }
+    })();
+    const storedMode = (() => {
+      try { return localStorage.getItem('ik_current_mode'); } catch (e) { return null; }
+    })();
 
     this.currentView = this.options.initialView;
-    this.language = this.options.language;
+    this.language = storedLang || this.options.language || 'en';
     this.learnerId = this.options.learnerId && this.options.learnerId !== 'lrn_demo'
       ? this.options.learnerId
       : (storedLearnerId || 'lrn_demo');
-    this.isSimpleMode = false;
+    this.isSimpleMode = storedMode === 'simple' || false;
     this.root = null;
     this.contentContainer = null;
     this.activeChild = null;
@@ -95,6 +101,7 @@ export class InclusiveKitInstance {
 
   setLanguage(lang) {
     this.language = lang;
+    try { localStorage.setItem('ik_current_language', lang); } catch (e) {}
     if (this.voiceAssistant) this.voiceAssistant.cancelPending();
     this.render();
     this.focusControl('.ik-lang-toggle');
@@ -190,14 +197,33 @@ export class InclusiveKitInstance {
     const actions = document.createElement('div');
     actions.className = 'ik-nav-actions';
 
-    // Language toggle
-    const targetLang = this.language === 'am' ? 'en' : 'am';
-    const langBtn = document.createElement('button');
-    langBtn.type = 'button';
-    langBtn.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-lang-toggle';
-    setIconLabel(langBtn, '🌐', targetLang === 'am' ? 'አማርኛ' : 'English', targetLang);
-    langBtn.addEventListener('click', () => this.setLanguage(targetLang));
-    actions.appendChild(langBtn);
+    // Language dropdown: allows choosing any of the 5 supported languages directly
+    const langSelect = document.createElement('select');
+    langSelect.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-lang-select ik-lang-toggle';
+    langSelect.setAttribute('aria-label', t('language', this.language) || 'Select Language');
+
+    const languages = [
+      { code: 'en', label: '🌐 English' },
+      { code: 'am', label: '🇪🇹 አማርኛ' },
+      { code: 'so', label: '🇸🇴 Soomaali' },
+      { code: 'om', label: '🇪🇹 Oromoo' },
+      { code: 'ti', label: '🇪🇹 ትግርኛ' }
+    ];
+
+    languages.forEach((item) => {
+      const opt = document.createElement('option');
+      opt.value = item.code;
+      opt.textContent = item.label;
+      if (item.code === this.language) {
+        opt.selected = true;
+      }
+      langSelect.appendChild(opt);
+    });
+
+    langSelect.addEventListener('change', (e) => {
+      this.setLanguage(e.target.value);
+    });
+    actions.appendChild(langSelect);
 
     // Mode toggle with visible text cue
     const modeBtn = document.createElement('button');
@@ -208,6 +234,7 @@ export class InclusiveKitInstance {
     setIconLabel(modeBtn, '🖼️', modeText);
     modeBtn.addEventListener('click', () => {
       this.isSimpleMode = !this.isSimpleMode;
+      try { localStorage.setItem('ik_current_mode', this.isSimpleMode ? 'simple' : 'standard'); } catch (e) {}
       this.render();
       this.focusControl('.ik-mode-toggle');
     });
@@ -244,6 +271,51 @@ export class InclusiveKitInstance {
     });
   }
 
+  updateNavBar() {
+    if (!this.root) return;
+    try { localStorage.setItem('ik_current_language', this.language); } catch (e) {}
+    try { localStorage.setItem('ik_current_mode', this.isSimpleMode ? 'simple' : 'standard'); } catch (e) {}
+    this.root.setAttribute('lang', this.language);
+
+    // Update nav tab text in the new language
+    const views = [
+      { id: 'career', label: t('career', this.language), icon: '💼' },
+      { id: 'profile', label: t('profile', this.language), icon: '👤' },
+      { id: 'onboarding', label: t('onboarding', this.language), icon: '✨' },
+      { id: 'employer', label: t('employer', this.language), icon: '📝' }
+    ];
+    views.forEach((v) => {
+      const tabBtn = this.root.querySelector(`.ik-nav-tab[data-view="${v.id}"]`);
+      if (tabBtn) setIconLabel(tabBtn, v.icon, v.label);
+    });
+
+    const tabsContainer = this.root.querySelector('.ik-nav-tabs');
+    if (tabsContainer) tabsContainer.setAttribute('aria-label', t('nav_label', this.language));
+
+    // Update language dropdown value
+    const langSelect = this.root.querySelector('.ik-lang-select');
+    if (langSelect) {
+      langSelect.value = this.language;
+      langSelect.setAttribute('aria-label', t('language', this.language) || 'Select Language');
+    }
+
+    // Update mode toggle
+    const modeBtn = this.root.querySelector('.ik-mode-toggle');
+    if (modeBtn) {
+      modeBtn.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-mode-toggle' + (this.isSimpleMode ? ' ik-active' : '');
+      modeBtn.setAttribute('aria-pressed', this.isSimpleMode ? 'true' : 'false');
+      const modeText = t('mode_label', this.language) + ' ' + (this.isSimpleMode ? t('toggleOn', this.language) : t('toggleOff', this.language));
+      setIconLabel(modeBtn, '🖼️', modeText);
+    }
+
+    // Update voice assistant buttons
+    const actions = this.root.querySelector('.ik-nav-actions');
+    if (actions && this.voiceAssistant) {
+      actions.querySelectorAll('.ik-voice-read-btn, .ik-voice-stop-btn, .ik-voice-command-btn').forEach(el => el.remove());
+      this.voiceAssistant.renderControls(actions, this.language);
+    }
+  }
+
   renderView() {
     if (!this.contentContainer) return;
     this.destroyChild();
@@ -268,26 +340,43 @@ export class InclusiveKitInstance {
         isSimpleMode: this.isSimpleMode,
         onProfileChange: (updated) => {
           this.learnerId = updated.id;
-          if (updated.language) this.language = updated.language;
-          if (updated.mode) this.isSimpleMode = updated.mode === 'simple';
+          if (updated.language) {
+            this.language = updated.language;
+            this.updateNavBar();
+          }
+          if (updated.mode) {
+            this.isSimpleMode = updated.mode === 'simple';
+            this.updateNavBar();
+          }
         }
       });
       profile.init();
       this.activeChild = profile;
 
     } else if (this.currentView === 'onboarding') {
-      startOnboardingFlow({
+      this.activeChild = startOnboardingFlow({
         container: this.contentContainer,
         initialLanguage: this.language,
+        isSimpleMode: this.isSimpleMode,
+        onLanguageChange: (newLang, isSimple) => {
+          if (newLang !== this.language || (isSimple !== undefined && isSimple !== this.isSimpleMode)) {
+            this.language = newLang;
+            if (isSimple !== undefined) this.isSimpleMode = isSimple;
+            this.updateNavBar();
+          }
+        },
         onComplete: (learner) => {
           this.learnerId = learner.id;
           this.language = learner.language || this.language;
           this.isSimpleMode = learner.mode === 'simple';
+          this.updateNavBar();
           this.setView('profile');
         },
         onNavigateToJobs: (learner) => {
           this.learnerId = learner.id;
           this.language = learner.language || this.language;
+          this.isSimpleMode = learner.mode === 'simple';
+          this.updateNavBar();
           this.setView('career');
         }
       });

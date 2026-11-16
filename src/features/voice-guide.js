@@ -30,12 +30,14 @@
 // saying "stop" ends the guide at any point.
 //
 // Autoplay honesty: browsers block <audio> playback (the remote
-// Amharic path) until the first tap or keypress. The guide attempts the
+// Amharic/Somali path) until the first tap or keypress. The guide attempts the
 // greeting immediately; when playback is blocked it waits for the
 // first user activation anywhere on the page and retries. English
-// greetings, and Amharic greetings on devices with a local Amharic
-// voice, use SpeechSynthesis, which browsers do not block the same
-// way, so they usually play at once.
+// greetings, and greetings on devices with a local voice for the
+// language, use SpeechSynthesis, which browsers do not block the same
+// way, so they usually play at once. When no voice exists for the
+// language at all, the guide continues with text announcements and
+// listening instead of dying at the greeting (see say()).
 import {
   speak,
   stopSpeaking,
@@ -71,9 +73,23 @@ function setGuideSessionState(value) {
 // updated by that choice, so each question's language is detected from
 // its own rendered text.
 export function detectGuideLanguage(text, fallback) {
-  if (text && ETHIOPIC_RE.test(text)) return 'am';
-  if (text && /[A-Za-z]/.test(text)) return 'en';
-  return fallback === 'am' ? 'am' : 'en';
+  const fb = (fallback === 'am' || fallback === 'so' || fallback === 'om' || fallback === 'ti') ? fallback : 'en';
+  // Ethiopic script is shared by Amharic and Tigrinya: the kit
+  // language disambiguates. Without a kit-language signal, Amharic
+  // (as before — the language chooser switching to Amharic screens).
+  if (text && ETHIOPIC_RE.test(text)) {
+    if (fb === 'am' || fb === 'ti') return fb;
+    return 'am';
+  }
+  // Latin script is shared by English, Somali, and Afaan Oromoo:
+  // the kit language disambiguates. Latin text under an Amharic or
+  // Tigrinya kit is a mixed fragment (a name, a number) — English.
+  if (text && /[A-Za-z]/.test(text)) {
+    if (fb === 'en' || fb === 'so' || fb === 'om') return fb;
+    return 'en';
+  }
+  // No script signal: trust the kit language.
+  return fb;
 }
 
 export function normalizeTranscript(text) {
@@ -95,6 +111,26 @@ const NUMBER_WORDS_AM = {
   'አሥር': 10, 'አስር': 10
 };
 
+// DRAFT: number words for the three added languages (native-speaker
+// review owed, as for the UI translations). Oromo 6 is "ja'a"; the
+// normalizer strips the apostrophe, so the spoken token arrives as
+// "ja" and that is what is matched here.
+const NUMBER_WORDS_SO = {
+  eber: 0, kow: 1, laba: 2, saddex: 3, afar: 4, shan: 5, lix: 6,
+  toddoba: 7, siddeed: 8, sagaal: 9, toban: 10
+};
+
+const NUMBER_WORDS_OM = {
+  zeeroo: 0, tokko: 1, lama: 2, sadii: 3, sadi: 3, afur: 4, shan: 5,
+  ja: 6, torba: 7, saddeet: 8, sagal: 9, kudhan: 10
+};
+
+const NUMBER_WORDS_TI = {
+  'ዜሮ': 0, 'ሓደ': 1, 'ክልተ': 2, 'ሦስተ': 3, 'ሶስተ': 3, 'ኣርባዕተ': 4,
+  'ሓሙሽተ': 5, 'ሽዱሽተ': 6, 'ሸውዓተ': 7, 'ሽሙንተ': 8, 'ትሽዓተ': 9,
+  'ዓሰርተ': 10
+};
+
 const ETHIOPIC_DIGITS = {
   '፩': 1, '፪': 2, '፫': 3, '፬': 4, '፭': 5,
   '፮': 6, '፯': 7, '፰': 8, '፱': 9, '፲': 10
@@ -113,21 +149,28 @@ export function parseNumbers(transcript) {
     if (ETHIOPIC_DIGITS[token] !== undefined) { found.push(ETHIOPIC_DIGITS[token]); return; }
     if (NUMBER_WORDS_EN[token] !== undefined) { found.push(NUMBER_WORDS_EN[token]); return; }
     if (NUMBER_WORDS_AM[token] !== undefined) { found.push(NUMBER_WORDS_AM[token]); return; }
+    if (NUMBER_WORDS_SO[token] !== undefined) { found.push(NUMBER_WORDS_SO[token]); return; }
+    if (NUMBER_WORDS_OM[token] !== undefined) { found.push(NUMBER_WORDS_OM[token]); return; }
+    if (NUMBER_WORDS_TI[token] !== undefined) { found.push(NUMBER_WORDS_TI[token]); return; }
   });
   return found;
 }
 
-// Guide commands, English and Amharic. Matching is whole-word based so
-// a transcript with extra words still works. Order matters: 'try again'
-// must be checked before 'again', and 'stop' before everything else.
+// Guide commands, English, Amharic, Somali, Afaan Oromoo, and
+// Tigrinya. Matching is whole-word based so a transcript with extra
+// words still works. Order matters: 'try again' must be checked
+// before 'again', and 'stop' before everything else. The Somali,
+// Oromo, and Tigrinya phrases are DRAFT (native-speaker review owed);
+// they are the same words the translated guide prompts tell the user
+// to say, so a translated prompt always names a working command.
 export const GUIDE_COMMANDS = [
-  { action: 'stop', phrases: ['stop', 'quit', 'exit', 'cancel', 'አቁም', 'ቁም'] },
-  { action: 'back', phrases: ['go back', 'back', 'previous', 'ተመለስ', 'ወደ ኋላ'] },
-  { action: 'help', phrases: ['help', 'what can i say', 'እርዳታ'] },
-  { action: 'done', phrases: ['done', 'finished', 'continue', 'next', 'that is all', "that's all", 'ተጠናቋል', 'ቀጥል', 'ጨርሻለሁ', 'አልቋል'] },
-  { action: 'skip', phrases: ['skip', 'ዝለል'] },
-  { action: 'retry', phrases: ['retry', 'try again', 'እንደገና ሞክር'] },
-  { action: 'repeat', phrases: ['repeat', 'say again', 'again', 'እንደገና', 'ድገም'] }
+  { action: 'stop', phrases: ['stop', 'quit', 'exit', 'cancel', 'አቁም', 'ቁም', 'jooji', 'dhaabi', 'ኣቋሪጽ'] },
+  { action: 'back', phrases: ['go back', 'back', 'previous', 'ተመለስ', 'ወደ ኋላ', 'dib', 'dib u noqo', 'duubatti', 'duubatti deebi'] },
+  { action: 'help', phrases: ['help', 'what can i say', 'እርዳታ', 'caawimo', 'gargaarsa', 'ሓገዝ'] },
+  { action: 'done', phrases: ['done', 'finished', 'continue', 'next', 'that is all', "that's all", 'ተጠናቋል', 'ቀጥል', 'ጨርሻለሁ', 'አልቋል', 'dhammaaday', 'xumurame', 'ተወዲኡ'] },
+  { action: 'skip', phrases: ['skip', 'ዝለል', 'ka bood', 'darbi', 'ዘልል'] },
+  { action: 'retry', phrases: ['retry', 'try again', 'እንደገና ሞክር', 'isku day mar kale', 'mar kale isku day', 'irra deebi yaali', 'እንደገና ፈትን'] },
+  { action: 'repeat', phrases: ['repeat', 'say again', 'again', 'እንደገና', 'ድገም', 'ku celi', 'irra deebi', 'ደግም'] }
 ];
 
 export function matchGuideCommand(transcript) {
@@ -198,31 +241,33 @@ export function matchOptionByWords(transcript, options) {
 }
 
 // Match a spoken language choice on the language chooser
-// ("Amharic standard", "English simple", "አማርኛ ቀላል"). Word-length
-// scoring alone gets this wrong — "Amharic standard" would match
-// "English (Standard)" because 'standard' is longer than the alias —
-// so a spoken language name restricts the choice to that language's
-// options first, and 'simple'/'ቀላል' picks the simple variant,
-// otherwise the standard one. Only applies to option sets whose values
-// look like language choices (en_standard, am_simple, ...); returns
-// null everywhere else. Pure function: unit-tested.
+// ("Amharic standard", "English simple", "አማርኛ ቀላል", "Soomaali",
+// "Afaan Oromoo", "ትግርኛ"). Word-length scoring alone gets this
+// wrong — "Amharic standard" would match "English (Standard)"
+// because 'standard' is longer than the alias — so a spoken
+// language name restricts the choice to that language's options
+// first, and 'simple'/'ቀላል' picks the simple variant, otherwise
+// the standard one. Only applies to option sets whose values look
+// like language choices (en_standard, am_simple, so_standard, ...);
+// returns null everywhere else. Pure function: unit-tested.
 export function matchLanguageOption(transcript, options) {
   if (!options || options.length === 0) return null;
   const hasLangValues = options.some(function (opt) {
-    return opt.value && /^(en|am)[_-]/i.test(String(opt.value));
+    return opt.value && /^(en|am|so|om|ti)[_-]/i.test(String(opt.value));
   });
   if (!hasLangValues) return null;
   const text = ' ' + normalizeTranscript(transcript) + ' ';
   let lang = null;
   if (text.indexOf(' amharic ') !== -1 || text.indexOf(' አማርኛ ') !== -1) lang = 'am';
   else if (text.indexOf(' english ') !== -1 || text.indexOf(' እንግሊዝኛ ') !== -1) lang = 'en';
+  else if (text.indexOf(' somali ') !== -1 || text.indexOf(' soomaali ') !== -1 || text.indexOf(' af-soomaali ') !== -1) lang = 'so';
+  else if (text.indexOf(' oromo ') !== -1 || text.indexOf(' oromoo ') !== -1 || text.indexOf(' afaan ') !== -1) lang = 'om';
+  else if (text.indexOf(' tigrinya ') !== -1 || text.indexOf(' ትግርኛ ') !== -1) lang = 'ti';
   if (!lang) return null;
   const sameLang = [];
   options.forEach(function (opt, idx) {
-    const value = String(opt.value || '').toLowerCase();
-    const isAm = value.indexOf('am_') === 0 || value.indexOf('am-') === 0
-      || ETHIOPIC_RE.test(String(opt.label || ''));
-    if ((lang === 'am') === isAm) sameLang.push(idx);
+    const prefix = String(opt.value || '').toLowerCase().split(/[_-]/)[0];
+    if (prefix === lang) sameLang.push(idx);
   });
   if (sameLang.length === 0) return null;
   const wantsSimple = text.indexOf(' simple ') !== -1 || text.indexOf(' ቀላል ') !== -1;
@@ -528,9 +573,14 @@ export class VoiceGuide {
     this.listening = false;
     this.audioUnlocked = false;
     this.recognitionLangOverride = null;
+    this.noVoiceAnnounced = false;
+    this.notConfiguredAnnounced = false;
     this.suspendNavStop = false;
     this.activationWait = null;
-    this.maxListenAttempts = 3;
+    // No listen-attempt cap: once the user has allowed the
+    // microphone, the guide keeps listening until the user stops it
+    // or answers — silence and misheard answers never end the guide
+    // on their own (see guideOneQuestion and noteMisheard).
   }
 
   isActive() {
@@ -539,7 +589,9 @@ export class VoiceGuide {
 
   lang() {
     const raw = String(this.getLanguage() || 'en').toLowerCase();
-    return raw === 'am' || raw.indexOf('am-') === 0 || raw.indexOf('am_') === 0 ? 'am' : 'en';
+    const base = raw.split(/[-_]/)[0];
+    if (base === 'am' || base === 'so' || base === 'om' || base === 'ti') return base;
+    return 'en';
   }
 
   // Every await in the guide loop is followed by this check: a stop, a
@@ -557,6 +609,8 @@ export class VoiceGuide {
     this.generation += 1;
     const gen = this.generation;
     this.recognitionLangOverride = null;
+    this.noVoiceAnnounced = false;
+    this.notConfiguredAnnounced = false;
     this.audioUnlocked = false;
     this.onStateChange();
     try {
@@ -618,7 +672,7 @@ export class VoiceGuide {
     // The welcome in the other language, so an Amharic speaker hears
     // their language immediately even when the kit opens in English.
     // Non-fatal: if it cannot be spoken, the guide continues.
-    const otherLang = mountLang === 'am' ? 'en' : 'am';
+    const otherLang = mountLang === 'en' ? 'am' : 'en';
     try {
       await this.say(t('guideGreeting', otherLang), otherLang, gen);
     } catch (err) {
@@ -742,6 +796,40 @@ export class VoiceGuide {
       } catch (err) {
         if (isStoppedError(err)) throw err;
         this.checkGen(gen);
+        // No voice exists for this language on this device (and no
+        // remote voice can fix it for Afaan Oromoo): the guide must
+        // not die at the greeting. Announce the notice once and the
+        // prompt text itself, so a screen reader still carries every
+        // prompt, then continue with listening — the question is
+        // visible on screen.
+        if (err && (err.code === 'no_amharic_voice' || err.code === 'no_voice_for_language')) {
+          // The notice and the prompt go out as ONE announcement:
+          // back-to-back announcements cancel each other (the live
+          // region writes on a timer), so the notice would never
+          // be heard if announced separately.
+          if (!this.noVoiceAnnounced) {
+            this.noVoiceAnnounced = true;
+            this.announce(t('guideNoVoice', lang) + ' ' + text);
+          } else {
+            this.announce(text);
+          }
+          this.audioUnlocked = true;
+          return;
+        }
+        // The voice service is not configured (no Gemini key): every
+        // remote utterance would fail the same way, so retrying is
+        // pointless. Same shape as no-voice — announce the honest
+        // reason once, then the prompt, and continue with listening.
+        if (err && err.code === 'voice_not_configured') {
+          if (!this.notConfiguredAnnounced) {
+            this.notConfiguredAnnounced = true;
+            this.announce(t(lang === 'am' ? 'voiceNotConfigured' : 'voiceNotConfiguredGeneric', lang) + ' ' + text);
+          } else {
+            this.announce(text);
+          }
+          this.audioUnlocked = true;
+          return;
+        }
         if (err && err.code === 'audio_blocked' && !blockedRetried) {
           blockedRetried = true;
           await this.waitForActivation(lang, gen);
@@ -769,29 +857,48 @@ export class VoiceGuide {
       const timer = setTimeout(function () {
         if (settled) return;
         settled = true;
+        clearInterval(genTimer);
         try { stopSpeaking(); } catch (e) {}
         const err = new Error('Speech timed out.');
         err.code = self.audioUnlocked ? 'speak_timeout' : 'audio_blocked';
         reject(err);
       }, 45000);
+      // A stop must unwind the guide at once, not after the 45s
+      // backstop: cancelling speech does not reliably fire the
+      // utterance callbacks, so watch the generation directly.
+      const genTimer = setInterval(function () {
+        if (settled) return;
+        if (gen !== self.generation) {
+          settled = true;
+          clearTimeout(timer);
+          clearInterval(genTimer);
+          reject(stoppedError());
+        }
+      }, 200);
       function done() {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearInterval(genTimer);
         if (failedErr) reject(failedErr);
         else resolve();
       }
-      // Prefer speech that stays on the device: a genuine local Amharic
-      // voice (Edge exposes the same native voices) avoids both the
-      // network and the autoplay block. Otherwise the remote endpoint,
-      // with the guide's opt-in (see the module header).
-      const useLocal = lang === 'en'
-        || Boolean(speakOpts.localOnly)
-        || Boolean(lang === 'am' && findVoiceForLanguage('am-ET'));
+      // Prefer speech that stays on the device: a genuine local voice
+      // for the language (Edge exposes the same native voices)
+      // avoids both the network and the autoplay block. Otherwise
+      // the remote endpoint, with the guide's opt-in (see the module
+      // header) — for Amharic, Somali, and Tigrinya, the languages
+      // with a remote voice. Afaan Oromoo has no remote voice:
+      // without a local voice, speak() reports
+      // no_voice_for_language and say() continues with announcements.
+      const voiceTag = lang === 'am' ? 'am-ET' : lang === 'so' ? 'so-SO' : lang === 'om' ? 'om-ET' : lang === 'ti' ? 'ti-ET' : 'en-US';
+      const hasLocalVoice = lang === 'en' || Boolean(findVoiceForLanguage(voiceTag));
+      const useLocal = Boolean(speakOpts.localOnly) || hasLocalVoice;
+      const hasRemote = lang === 'am' || lang === 'so' || lang === 'ti';
       speak(text, {
         language: lang,
-        localOnly: lang === 'am' && useLocal ? true : undefined,
-        consent: lang === 'am' && !useLocal ? 'granted' : undefined,
+        localOnly: useLocal && lang !== 'en' ? true : undefined,
+        consent: !useLocal && hasRemote ? 'granted' : undefined,
         onStart: function () { self.onStateChange(); },
         onError: function (err) { failedErr = err; },
         onEnd: function () { done(); self.onStateChange(); }
@@ -902,15 +1009,18 @@ export class VoiceGuide {
       this.announce(t('guideMicDenied', lang));
       return 'end';
     }
-    // Amharic recognition is missing on many devices. Numbers and
-    // digits still work through English recognition, so the guide
-    // falls back to listening in English and says so, instead of
-    // abandoning a user who cannot read the screen.
-    if (code === 'language-not-supported' && lang === 'am' && !this.recognitionLangOverride) {
+    // Recognition for the kit language is missing on many devices
+    // (Amharic, Somali, Afaan Oromoo, and Tigrinya alike). Numbers
+    // and digits still work through English recognition, so the
+    // guide falls back to listening in English and says so, instead
+    // of abandoning a user who cannot read the screen.
+    if (code === 'language-not-supported' && lang !== 'en' && !this.recognitionLangOverride) {
       this.recognitionLangOverride = 'en';
-      try { await this.say(t('guideLangFallback', 'am'), 'am', gen); } catch (err) {
+      const noticeKey = lang === 'am' ? 'guideLangFallback' : 'guideLangFallbackGeneric';
+      try { await this.say(t(noticeKey, lang), lang, gen); } catch (err) {
         if (isStoppedError(err)) throw err;
       }
+      this.announce(t(noticeKey, lang));
       return 'continue';
     }
     if (code === 'language-not-supported') {
@@ -1093,14 +1203,10 @@ export class VoiceGuide {
   }
 
   async noteMisheard(lang, gen, attempts) {
+    // A misheard answer never ends the guide: say so and listen
+    // again. The user stops the guide with "stop" or the Stop
+    // button, never by being misunderstood.
     const next = attempts + 1;
-    if (next >= this.maxListenAttempts) {
-      try { await this.say(t('guideGiveUp', lang), lang, gen); } catch (err) {
-        if (isStoppedError(err)) throw err;
-      }
-      this.announce(t('guideGiveUp', lang));
-      return null;
-    }
     try {
       await this.say(t('guideUnknownAnswer', lang), lang, gen);
     } catch (err) {
@@ -1138,13 +1244,8 @@ export class VoiceGuide {
         if (outcome === 'end') return 'ended';
         if (outcome === 'continue') continue;
         attempts += 1;
-        if (attempts >= this.maxListenAttempts) {
-          try { await this.say(t('guideGiveUp', lang), lang, gen); } catch (err) {
-            if (isStoppedError(err)) throw err;
-          }
-          this.announce(t('guideGiveUp', lang));
-          return 'ended';
-        }
+        // Silence never ends the guide: say so and listen again
+        // until the user answers or stops the guide.
         try { await this.say(t('guideDidNotHear', lang), lang, gen); } catch (err) {
           if (isStoppedError(err)) throw err;
           return 'ended';

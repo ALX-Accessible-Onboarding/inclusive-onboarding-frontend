@@ -10,10 +10,14 @@
 // and startVoiceRecognition() paths.
 //
 // Rules:
-// - English and Amharic only. English speech stays local in the browser.
-// - Amharic speech goes to Gemini only after informed consent (see
-//   requestConsent). Typed answers, passwords, profile values and support
-//   needs are never collected for speech (see collectPageText exclusions).
+// - Five languages: English, Amharic, Somali, Afaan Oromoo, and
+//   Tigrinya. English speech stays local in the browser. Afaan
+//   Oromoo has no remote voice, so it also stays local and reports
+//   honestly when the device has no voice.
+// - Amharic, Somali, and Tigrinya speech goes to the remote voice
+//   service only after informed consent (see requestConsent). Typed
+//   answers, passwords, profile values and support needs are never
+//   collected for speech (see collectPageText exclusions).
 // - Voice commands listen CONTINUOUSLY once started: one tap on the
 //   microphone (one permission grant) keeps the microphone open across
 //   views until the user says "stop", taps Stop, or leaves the site.
@@ -22,6 +26,9 @@
 //   (interpretAnswer/fillAnswer in voice-guide.js). While a spoken
 //   response plays, listening pauses so the recognizer does not hear
 //   the site's own voice, then resumes in the screen's language.
+//   Read-alouds are the exception: listening stays live while the
+//   page is read, and only an exact "stop" acts during speech, so
+//   the user can interrupt a long read at any moment.
 // - Voice is never the only way to do anything: every control is a native
 //   button, keyboard reachable, with the kit's existing visible focus ring.
 // - Navigation is announced to screen readers by the existing focus-to-
@@ -35,9 +42,10 @@ import {
   isSpeechSupported,
   checkVoiceService,
   getVoiceConsent,
-  setVoiceConsent
+  setVoiceConsent,
+  findVoiceForLanguage
 } from './read-aloud.js';
-import { startVoiceRecognition, isVoiceSupported } from './voice-input.js';
+import { startVoiceRecognition, isVoiceSupported, stopAllRecognition } from './voice-input.js';
 import {
   VoiceGuide,
   getGuideSessionState,
@@ -48,7 +56,8 @@ import {
   buildQuestionPrompt,
   interpretAnswer,
   fillAnswer,
-  applyGuideAction
+  applyGuideAction,
+  parseNumbers
 } from './voice-guide.js';
 import { t } from '../labels.js';
 
@@ -133,14 +142,22 @@ export function collectPageText(container, maxChars) {
 // Voice commands, English and Amharic. Matching is substring-based so a
 // transcript with extra words ("please read the page") still works. Order
 // matters: stop is checked before read, help before view names.
+// Navigation and control commands in all five languages. The
+// Somali, Afaan Oromoo, and Tigrinya phrases reuse the words the
+// user sees on screen (nav labels, Next/Back/Apply buttons) plus
+// common verbs — DRAFT wording, to be checked by a native speaker
+// (see TRANSLATION_SHEET.md). Matching is substring-based, as
+// before; 'stop' stays first so "stop reading" never reads, and
+// the employer entry stays above career because "post a job"
+// contains the word for "jobs" in Somali, Oromo, and Tigrinya.
 export const VOICE_COMMANDS = [
-  { action: 'stop', phrases: ['stop reading', 'stop', 'ማንበብ አቁም', 'አቁም'] },
-  { action: 'read', phrases: ['read this page', 'read page', 'read aloud', 'read', 'ጮክ ብሎ አንብብ', 'ገጹን አንብብ', 'አንብብ'] },
-  { action: 'help', phrases: ['help', 'what can i say', 'እርዳታ'] },
-  { action: 'view', view: 'career', phrases: ['career gateway', 'career', 'jobs', 'የሥራ እድሎች', 'ስራዎች', 'ስራ'] },
-  { action: 'view', view: 'profile', phrases: ['my profile', 'profile', 'መገለጫዬ', 'መገለጫ'] },
-  { action: 'view', view: 'onboarding', phrases: ['onboarding', 'registration', 'register', 'sign up', 'ምዝገባ', 'ይመዝገቡ'] },
-  { action: 'view', view: 'employer', phrases: ['post a job', 'employer', 'ሥራ ይለጥፉ', 'ሥራ ልጥፍ'] }
+  { action: 'stop', phrases: ['stop reading', 'stop', 'ማንበብ አቁም', 'አቁም', 'jooji akhriska', 'jooji', 'dubbisa dhaabi', 'dhaabi', 'ምንባብ ኣቋሪጽ', 'ኣቋሪጽ'] },
+  { action: 'read', phrases: ['read this page', 'read page', 'read aloud', 'read', 'ጮክ ብሎ አንብብ', 'ገጹን አንብብ', 'አንብብ', 'ii akhri', 'boggan akhri', 'akhri', 'naaf dubbisi', 'fuula kana dubbisi', 'dubbisi', 'ኣንብበለይ', 'እዚ ገጽ ኣንብብ', 'ኣንብብ'] },
+  { action: 'help', phrases: ['help', 'what can i say', 'እርዳታ', 'caawimo', 'caawin', 'maxaan dhihi karaa', 'gargaarsa', 'ሓገዝ', 'እንታይ ክብል ይኽእል'] },
+  { action: 'view', view: 'employer', phrases: ['post a job', 'employer', 'ሥራ ይለጥፉ', 'ሥራ ልጥፍ', 'shaqo dhig', 'loo shaqeeye', 'hojii maxxansi', 'ስራሕ ኣስነድ'] },
+  { action: 'view', view: 'career', phrases: ['career gateway', 'career', 'jobs', 'የሥራ እድሎች', 'ስራዎች', 'ስራ', 'albaabka xirfadaha', 'shaqooyinka', 'shaqo', 'balbala hojii', 'carraa hojii', 'hojii', 'ኣፍደገ ሙያ', 'ስራሓት', 'ስራሕ'] },
+  { action: 'view', view: 'profile', phrases: ['my profile', 'profile', 'መገለጫዬ', 'መገለጫ', 'astaantayda', 'xogtayda', 'seenaa koo', 'profaayilii', 'ፕሮፋይለይ', 'መግለጺይ'] },
+  { action: 'view', view: 'onboarding', phrases: ['onboarding', 'registration', 'register', 'sign up', 'ምዝገባ', 'ይመዝገቡ', 'isdiiwaangeli', 'diwaangelin', 'galmaai', 'galmaa\'i', 'galmee', 'ተመዝገብ', 'ምዝገባ'] }
 ];
 
 export function matchVoiceCommand(transcript) {
@@ -161,6 +178,115 @@ export function matchVoiceCommand(transcript) {
     }
   }
   return null;
+}
+
+// Exact stop utterances: the only transcripts that act while the site
+// is speaking (a read-aloud keeps listening live so "stop" can
+// interrupt it). Anything longer may be the site's own words leaking
+// back through the microphone, so it is ignored.
+const STOP_UTTERANCES = ['stop', 'stop voice', 'stop mic', 'stop listening', 'stop reading', 'አቁም', 'ማንበብ አቁም', 'jooji', 'jooji akhriska', 'dhaabi', 'dubbisa dhaabi', 'ኣቋሪጽ', 'ምንባብ ኣቋሪጽ'];
+
+export function isStopUtterance(transcript) {
+  const text = String(transcript || '')
+    .toLowerCase()
+    .replace(/[.,!?።؟]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return STOP_UTTERANCES.indexOf(text) !== -1;
+}
+
+function normalizeCommandText(transcript) {
+  return String(transcript || '')
+    .toLowerCase()
+    .replace(/[.,!?።؟]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Page actions: voice control for whatever the current view shows, so
+// the microphone alone can drive every page — stepping, pagination,
+// job applications, and any visible button. Pure: unit-tested.
+// Page-action words in all five languages, reusing the words on
+// the buttons (Next/Back/Apply labels) plus common verbs — DRAFT
+// wording, to be checked by a native speaker (see
+// TRANSLATION_SHEET.md).
+const NEXT_WORDS = ['next', 'next page', 'continue', 'ቀጣይ', 'xigta', 'itti aanu', 'ቀጺል'];
+const PREV_WORDS = ['previous', 'previous page', 'prev page', 'go back', 'ተመለስ', 'dib u noqo', 'duubatti'];
+const APPLY_WORDS = ['apply', 'apply now', 'አሁን ያመልክቱ', 'አመልክት', 'codso', 'codso hadda', 'iyyadu', 'amma iyyadu', 'ኣመልክት', 'ሕጂ ኣመልክት'];
+const APPLY_VERBS = 'apply|codso|iyyadu|ኣመልክት|አመልክት';
+const CLICK_VERBS = 'click|press|tap|riix|guji|tuqi|cuqaasi|ጸቅጥ|ጠውቕ|ጫን';
+
+export function parsePageAction(transcript) {
+  const text = normalizeCommandText(transcript);
+  if (!text) return null;
+  if (NEXT_WORDS.indexOf(text) !== -1) return { kind: 'next' };
+  if (PREV_WORDS.indexOf(text) !== -1) return { kind: 'previous' };
+  const pageMatch = text.match(/^(?:page|bog|fuula|ገጽ) (.+)$/);
+  if (pageMatch) {
+    const nums = parseNumbers(pageMatch[1]);
+    if (nums.length === 1 && nums[0] >= 1) return { kind: 'page', page: nums[0] };
+  }
+  if (APPLY_WORDS.indexOf(text) !== -1) return { kind: 'apply', index: 0 };
+  const applyMatch = text.match(new RegExp('^(?:' + APPLY_VERBS + ') (?:number |lambar |lakkoobsa |ቁጽሪ )?(.+)$'));
+  if (applyMatch) {
+    const nums = parseNumbers(applyMatch[1]);
+    if (nums.length === 1 && nums[0] >= 1) return { kind: 'apply', index: nums[0] - 1 };
+    const forMatch = applyMatch[1].match(/^(?:for|ee|fi|ን) (.+)$/);
+    if (forMatch && forMatch[1]) return { kind: 'apply-title', words: forMatch[1].trim() };
+    // A bare title after the verb ("codso kaaliye fogaan") applies
+    // for the named job — the title matcher scores word overlap,
+    // so unrelated words simply match nothing.
+    if (applyMatch[1].trim()) return { kind: 'apply-title', words: applyMatch[1].trim() };
+  }
+  const clickMatch = text.match(new RegExp('^(?:' + CLICK_VERBS + ')(?: on)? (?:the )?(.+)$'));
+  if (clickMatch && clickMatch[1]) return { kind: 'click', text: clickMatch[1].trim() };
+  return null;
+}
+
+function controlText(el) {
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+  if (text) return text;
+  return ((el.getAttribute && el.getAttribute('aria-label')) || '').replace(/\s+/g, ' ').trim();
+}
+
+function isClickableControl(el) {
+  if (!el || el.disabled) return false;
+  if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return false;
+  if (typeof el.getClientRects === 'function' && el.getClientRects().length === 0) return false;
+  // Voice controls are never clicked by voice: the microphone button
+  // would toggle the mic off, and field mics would start a competing
+  // recognition session.
+  if (el.closest) {
+    if (el.closest('.ik-voice-bar, .ik-voice-status')) return false;
+    if (el.classList && el.classList.contains('ik-btn-mic')) return false;
+  }
+  return true;
+}
+
+// Pick the visible, enabled control whose text best matches the spoken
+// words: exact text first, then text starting with the words, then
+// text containing them, then the words starting with the text (a
+// button labelled with one word of a longer utterance). Pure apart
+// from the element handles: unit-tested with fakes.
+export function matchControlByText(controls, text) {
+  const needle = normalizeCommandText(text);
+  if (!needle || needle.length < 2) return null;
+  const usable = [];
+  for (let i = 0; i < controls.length; i++) {
+    if (isClickableControl(controls[i])) usable.push(controls[i]);
+  }
+  let startsWith = null;
+  let contains = null;
+  let needleStarts = null;
+  for (let i = 0; i < usable.length; i++) {
+    const label = controlText(usable[i]).toLowerCase();
+    if (!label) continue;
+    if (label === needle) return usable[i];
+    if (!startsWith && label.indexOf(needle) === 0) startsWith = usable[i];
+    else if (!contains && label.indexOf(needle) !== -1) contains = usable[i];
+    else if (!needleStarts && needle.indexOf(label) === 0) needleStarts = usable[i];
+  }
+  return startsWith || contains || needleStarts;
 }
 
 // Icon (hidden from screen readers) + text. Uses textContent, never innerHTML.
@@ -217,6 +343,17 @@ export class VoiceAssistant {
     this.recognitionToken = 0;
     this.recognitionLangFallback = false;
     this.commandsWatchdog = null;
+    // When the live session last ended (see stopRecognitionOnly and
+    // the onEnd handler): the watchdog gives a speaking response a
+    // few seconds to resume the microphone on its own, and only
+    // restarts mid-speech when the microphone has been dead long
+    // enough that the speech-end callback must have been lost.
+    this.sessionEndedAt = 0;
+    // Deferred transcripts: an utterance that arrives while short
+    // speech is playing, or while the screen is mid-transition, is
+    // held and processed when the way is clear instead of being lost.
+    this.pendingCommands = [];
+    this.readingAloud = false;
     // Spoken screen prompts in continuous mode (see
     // speakCurrentScreenPrompt): the key of the last screen spoken,
     // so a prompt is said once per arrival, and a generation counter
@@ -245,7 +382,9 @@ export class VoiceAssistant {
 
   lang() {
     const raw = String(this.getLanguage() || 'en').toLowerCase();
-    return raw === 'am' || raw.indexOf('am-') === 0 || raw.indexOf('am_') === 0 ? 'am' : 'en';
+    const base = raw.split(/[-_]/)[0];
+    if (base === 'am' || base === 'so' || base === 'om' || base === 'ti') return base;
+    return 'en';
   }
 
   // The language the user is actually looking at. The mount language
@@ -365,6 +504,13 @@ export class VoiceAssistant {
 
   speakResponse(text, lang) {
     const self = this;
+    // Responses are fixed UI strings and numbers — never page text
+    // or personal data — so the microphone tap is the opt-in, the
+    // same rationale as the voice guide: without it, Amharic, Somali,
+    // and Tigrinya responses would stay silent on devices with no
+    // local voice. A genuine local voice is still preferred.
+    const remoteTag = lang === 'am' ? 'am-ET' : lang === 'so' ? 'so-SO' : lang === 'ti' ? 'ti-ET' : null;
+    const responseConsent = remoteTag && !findVoiceForLanguage(remoteTag) ? 'granted' : undefined;
     if (this.continuousCommands && this.listening) {
       // Pause listening while the response speaks, so the recognizer
       // does not hear the site's own voice and act on it; resume
@@ -376,7 +522,10 @@ export class VoiceAssistant {
       const resume = function () {
         if (resumed) return;
         resumed = true;
-        if (self.continuousCommands) {
+        // Restart only when no session is live: the watchdog may
+        // already have rescued the microphone while the response was
+        // speaking, and a second session must never be opened.
+        if (self.continuousCommands && !self.recognition) {
           self.listening = true;
           self.startContinuousRecognition(self.recognitionLang());
         }
@@ -386,6 +535,7 @@ export class VoiceAssistant {
       };
       speak(text, {
         language: lang,
+        consent: responseConsent,
         onStart: function () { self.updateControls(); },
         onEnd: resume,
         onError: resume
@@ -394,6 +544,7 @@ export class VoiceAssistant {
     }
     speak(text, {
       language: lang,
+      consent: responseConsent,
       onStart: function () { self.updateControls(); },
       onEnd: function () { self.updateControls(); },
       onError: function () { self.updateControls(); }
@@ -416,13 +567,10 @@ export class VoiceAssistant {
   readCurrentPage() {
     const lang = this.lang();
     this.voiceAnnouncementsOn = true;
-    // While the page is read aloud, pause continuous listening so the
-    // recognizer does not hear the site's own voice and act on the
-    // words it reads; resume when the reading ends (or is declined).
-    if (this.continuousCommands && this.listening) {
-      this.stopRecognitionOnly();
-      this.resumeCommandsAfterSpeech = true;
-    }
+    // Listening stays live while the page is read aloud, so "stop"
+    // can interrupt it at any moment; handleCommand ignores every
+    // other transcript while speech is playing, so the site's own
+    // words never trigger anything.
     const text = collectPageText(this.getContent());
     if (!text) {
       this.announce(t('voiceNothingToRead', lang));
@@ -440,7 +588,29 @@ export class VoiceAssistant {
       return;
     }
 
-    // Amharic: consent first, every session, unless already granted.
+    // Afaan Oromoo has no remote voice, so no page text is ever
+    // sent anywhere: no consent dialog and no health check — speak
+    // locally, and speak() reports honestly when the device has no
+    // voice for the language.
+    if (lang === 'om') {
+      this.speakPage(text, lang, {});
+      return;
+    }
+
+    // Tigrinya: a genuine voice on the device speaks without any
+    // key and without sending page text anywhere, so prefer it over
+    // the remote voice — exactly like Afaan Oromoo. Only when the
+    // device has no Tigrinya voice does the consent + Gemini-key
+    // flow below run. (Without this, a device WITH a Tigrinya voice
+    // stayed silent whenever the key was missing: the health gate
+    // below returned before speak() ever ran.)
+    if (lang === 'ti' && findVoiceForLanguage('ti-ET')) {
+      this.speakPage(text, lang, { localOnly: true });
+      return;
+    }
+
+    // Amharic, Somali, and Tigrinya: consent first, every session,
+    // unless already granted.
     if (getVoiceConsent() === 'granted') {
       this.speakPage(text, lang, { consent: 'granted' });
       return;
@@ -448,12 +618,20 @@ export class VoiceAssistant {
     const self = this;
     checkVoiceService().then(function (health) {
       if (!health.reachable) {
-        self.announce(t('voiceServiceUnavailable', lang));
+        self.announce(t(lang === 'am' ? 'voiceServiceUnavailable' : 'voiceServiceUnavailableGeneric', lang));
         self.maybeResumeCommands();
         return;
       }
-      if (!health.configured) {
-        self.announce(t('voiceNotConfigured', lang));
+      // Tigrinya is served by Gemini only: its readiness is the key,
+      // not the Edge-based `configured` flag.
+      if (lang === 'ti') {
+        if (!health.geminiConfigured) {
+          self.announce(t('voiceNotConfiguredGeneric', lang));
+          self.maybeResumeCommands();
+          return;
+        }
+      } else if (!health.configured) {
+        self.announce(t(lang === 'am' ? 'voiceNotConfigured' : 'voiceNotConfiguredGeneric', lang));
         self.maybeResumeCommands();
         return;
       }
@@ -473,17 +651,32 @@ export class VoiceAssistant {
 
   speakPage(text, lang, speakOpts) {
     const self = this;
+    // A read-aloud is long speech with listening live: while it
+    // plays, only "stop" may act, so the site's own words never
+    // trigger anything (see handleCommand). The flag only matters
+    // while speech is actually playing, so a lost end callback
+    // cannot wedge the gate.
+    this.readingAloud = true;
     speak(text, {
       language: lang,
       consent: speakOpts.consent,
+      localOnly: speakOpts.localOnly,
       onStart: function () { self.updateControls(); },
       onEnd: function () {
+        self.readingAloud = false;
         self.updateControls();
         self.maybeResumeCommands();
       },
-      onError: function () {
+      onError: function (err) {
+        self.readingAloud = false;
         self.updateControls();
-        self.announce(t('voiceError', lang));
+        // A missing voice is a fact about the device, not an error
+        // in the page: say so plainly instead of a generic failure.
+        if (err && (err.code === 'no_amharic_voice' || err.code === 'no_voice_for_language')) {
+          self.announce(t('voiceNoVoice', lang));
+        } else {
+          self.announce(t('voiceError', lang));
+        }
         self.maybeResumeCommands();
       }
     });
@@ -492,10 +685,15 @@ export class VoiceAssistant {
   stopAll(announceIt) {
     const lang = this.lang();
     const wasActive = isSpeaking() || this.listening || (this.guide && this.guide.isActive());
+    // Total stop: every microphone (commands, guide, per-field mics)
+    // and every voice, at once.
+    stopAllRecognition();
     if (this.guide) this.guide.stop('user');
     stopSpeaking();
     this.continuousCommands = false;
     this.recognitionLangFallback = false;
+    this.pendingCommands = [];
+    this.readingAloud = false;
     this.lastPromptKey = null;
     this.promptSpeakGen += 1;
     this.stopCommandsWatchdog();
@@ -510,6 +708,7 @@ export class VoiceAssistant {
       this.recognition = null;
     }
     this.listening = false;
+    this.sessionEndedAt = Date.now();
   }
 
   // One tap opens the microphone and it stays open: the recognizer
@@ -551,9 +750,14 @@ export class VoiceAssistant {
   // The watchdog rescues a microphone that died silently: a lost
   // speech-end event, a failed resume, a backgrounded tab. Every few
   // seconds it checks that continuous mode still has a live session,
-  // and restarts it when nothing is live and nothing is speaking.
-  // The normal pause-while-speaking is untouched (isSpeaking() is
-  // true then, and read-aloud owns its own resume flag).
+  // and restarts it when nothing is live. While speech is playing it
+  // waits briefly for the speech-end callback to resume the
+  // microphone on its own — but only briefly: a microphone dead for
+  // over ten seconds while speech still claims to be playing has a
+  // lost callback, and is restarted anyway, because listening during
+  // speech is safe (handleCommand ignores everything but "stop"
+  // while the site is speaking, and read-aloud already listens live
+  // through speech).
   startCommandsWatchdog() {
     const self = this;
     this.stopCommandsWatchdog();
@@ -573,7 +777,10 @@ export class VoiceAssistant {
     if (!this.continuousCommands) return;
     if (this.listening || this.recognition) return;
     if (this.guide && this.guide.isActive()) return;
-    if (isSpeaking()) return;
+    // Speech is playing and the microphone only just stopped: the
+    // speech-end callback is expected to resume it. Past ten seconds
+    // the callback is lost, so restart despite the speech.
+    if (isSpeaking() && Date.now() - this.sessionEndedAt < 10000) return;
     if (this.resumeCommandsAfterSpeech) {
       // A read-aloud ended without its resume firing: rescue it.
       this.maybeResumeCommands();
@@ -586,6 +793,10 @@ export class VoiceAssistant {
 
   startContinuousRecognition(lang) {
     const self = this;
+    // At most one session may ever be live: if a previous session is
+    // still referenced (a watchdog rescue racing a speech resume),
+    // stop it first so two microphones never listen at once.
+    if (this.recognition) this.stopRecognitionOnly();
     const token = (this.recognitionToken += 1);
     this.commandLang = lang;
     this.recognition = startVoiceRecognition({
@@ -596,12 +807,14 @@ export class VoiceAssistant {
         // A stale session's late error must not kill the live one.
         if (token !== self.recognitionToken) return;
         if (code === 'language-not-supported' && !self.recognitionLangFallback) {
-          // Amharic recognition is not available on this device:
-          // keep listening in English instead of closing the mic.
+          // Recognition for the kit language is not available on
+          // this device: keep listening in English instead of
+          // closing the mic.
           self.recognitionLangFallback = true;
           self.listening = true;
           self.startContinuousRecognition('en');
-          self.announce(t('guideLangFallback', self.currentLang()));
+          const fbLang = self.currentLang();
+          self.announce(t(fbLang === 'am' ? 'guideLangFallback' : 'guideLangFallbackGeneric', fbLang));
           return;
         }
         self.stopContinuousCommands();
@@ -623,14 +836,35 @@ export class VoiceAssistant {
         if (token !== self.recognitionToken) return;
         self.listening = false;
         self.recognition = null;
+        self.sessionEndedAt = Date.now();
         self.updateControls();
       }
     });
   }
 
   handleCommand(transcript) {
+    // "stop" always acts at once, even mid-speech: it is how a long
+    // read-aloud is interrupted.
+    if (isStopUtterance(transcript)) {
+      this.processCommand(transcript, 0);
+      return;
+    }
+    if (isSpeaking()) {
+      // During a read-aloud, anything but "stop" is the site's own
+      // words leaking back through the microphone: drop it. During a
+      // short prompt or confirmation, the transcript is the user's
+      // real answer arriving a moment early: hold it until the
+      // speech ends instead of losing it.
+      if (this.readingAloud) return;
+      this.deferCommand(transcript, 0);
+      return;
+    }
+    this.processCommand(transcript, 0);
+  }
+
+  processCommand(transcript, attempts) {
     try {
-      this.handleCommandInner(transcript);
+      this.handleCommandInner(transcript, attempts);
     } finally {
       // Whatever the utterance did, the screen may have changed: if
       // continuous listening is still on and a question, success, or
@@ -640,7 +874,39 @@ export class VoiceAssistant {
     }
   }
 
-  handleCommandInner(transcript) {
+  deferCommand(transcript, attempts) {
+    const self = this;
+    this.pendingCommands.push({ transcript: transcript, attempts: attempts });
+    if (this.pendingCommands.length === 1) {
+      setTimeout(function () { self.flushPendingCommands(); }, 250);
+    }
+  }
+
+  flushPendingCommands() {
+    if (!this.continuousCommands) {
+      this.pendingCommands = [];
+      return;
+    }
+    const item = this.pendingCommands[0];
+    if (!item) return;
+    // Still speaking after a long wait: process anyway rather than
+    // hold the answer forever (a stuck utterance must not wedge
+    // the microphone).
+    if (isSpeaking() && item.attempts < 20) {
+      item.attempts += 1;
+      const self = this;
+      setTimeout(function () { self.flushPendingCommands(); }, 250);
+      return;
+    }
+    this.pendingCommands.shift();
+    this.processCommand(item.transcript, item.attempts);
+    if (this.pendingCommands.length > 0) {
+      const self = this;
+      setTimeout(function () { self.flushPendingCommands(); }, 50);
+    }
+  }
+
+  handleCommandInner(transcript, attempts) {
     const lang = this.currentLang();
     const matched = matchVoiceCommand(transcript);
     if (matched) {
@@ -662,12 +928,135 @@ export class VoiceAssistant {
         return;
       }
     }
-    // No navigation command matched: on a question screen, the
-    // utterance may be an answer ("Amharic standard", "1 and 3", a
-    // spoken name) or a guide command ("repeat", "done", "back").
+    // The screen is mid-transition (async validation, saving): hold
+    // the utterance until the next screen renders instead of losing
+    // it to an "I did not understand".
+    if (attempts < 12 && this.guide
+      && this.guide.readScreenState().kind === 'loading') {
+      this.deferCommand(transcript, attempts + 1);
+      return;
+    }
+    // No navigation command matched: page actions first (stepping,
+    // pagination, job applications, explicit clicks), so the
+    // microphone alone drives every view.
+    if (this.handlePageAction(transcript, lang)) return;
+    // On a question screen, the utterance may be an answer
+    // ("Amharic standard", "1 and 3", a spoken name) or a guide
+    // command ("repeat", "done", "back").
     if (this.answerQuestionByVoice(transcript, lang)) return;
+    // Last resort on any view: a short utterance that names a visible
+    // button presses it, so every control is reachable by voice.
+    if (normalizeCommandText(transcript).split(' ').length <= 6
+      && this.clickControlByText(transcript, lang)) return;
     this.announce(t('voiceUnknownCommand', lang));
     this.speakResponse(t('voiceUnknownCommand', lang), lang);
+  }
+
+  // Drive the current view by voice: step forward/back on a question
+  // screen, turn job pages, open a job application, or click a named
+  // control. Returns true when something was acted on.
+  handlePageAction(transcript, lang) {
+    const action = parsePageAction(transcript);
+    if (!action) return false;
+    const content = this.getContent();
+    if (!content || typeof content.querySelector !== 'function') return false;
+    if (action.kind === 'next') {
+      const question = this.readCurrentQuestion();
+      if (question && question.nextBtn) {
+        question.nextBtn.click();
+        this.afterAnswerHandled();
+        return true;
+      }
+      const next = content.querySelector('.ik-pagination-next:not([disabled])');
+      if (next) {
+        next.click();
+        this.speakPageNumber(lang);
+        return true;
+      }
+      return false;
+    }
+    if (action.kind === 'previous') {
+      const prev = content.querySelector('.ik-pagination-prev:not([disabled])');
+      if (prev) {
+        prev.click();
+        this.speakPageNumber(lang);
+        return true;
+      }
+      const question = this.readCurrentQuestion();
+      if (question && question.backBtn) {
+        question.backBtn.click();
+        this.afterAnswerHandled();
+        return true;
+      }
+      return false;
+    }
+    if (action.kind === 'page') {
+      const numbers = content.querySelectorAll('.ik-pagination-number');
+      for (let i = 0; i < numbers.length; i++) {
+        if (numbers[i].textContent.trim() === String(action.page)) {
+          numbers[i].click();
+          this.speakPageNumber(lang);
+          return true;
+        }
+      }
+      return false;
+    }
+    if (action.kind === 'apply' || action.kind === 'apply-title') {
+      const buttons = Array.prototype.slice.call(content.querySelectorAll('.ik-apply-btn'));
+      const usable = buttons.filter(isClickableControl);
+      let target = null;
+      if (action.kind === 'apply') {
+        target = usable[action.index] || null;
+      } else {
+        for (let i = 0; i < usable.length; i++) {
+          const card = usable[i].closest ? usable[i].closest('.ik-job-card') : null;
+          const titleEl = card ? card.querySelector('.ik-job-title') : null;
+          const title = titleEl ? titleEl.textContent.toLowerCase() : '';
+          if (title && title.indexOf(action.words.toLowerCase()) !== -1) {
+            target = usable[i];
+            break;
+          }
+        }
+      }
+      if (!target) return false;
+      const card = target.closest ? target.closest('.ik-job-card') : null;
+      const titleEl = card ? card.querySelector('.ik-job-title') : null;
+      const title = titleEl ? titleEl.textContent.replace(/\s+/g, ' ').trim() : '';
+      target.click();
+      if (title) this.speakResponse(title, lang);
+      return true;
+    }
+    if (action.kind === 'click') {
+      return this.clickControlByText(action.text, lang);
+    }
+    return false;
+  }
+
+  // After a pagination turn, speak the page the user landed on, from
+  // the active page button's own accessible label.
+  speakPageNumber(lang) {
+    const content = this.getContent();
+    const active = content && content.querySelector
+      ? content.querySelector('.ik-pagination-number[aria-current="page"]')
+      : null;
+    const label = active ? active.getAttribute('aria-label') : null;
+    if (label) this.speakResponse(label, lang);
+  }
+
+  // Press the visible, enabled control whose text best matches the
+  // spoken words, and speak what was pressed. Never touches voice
+  // controls (see matchControlByText).
+  clickControlByText(text, lang) {
+    const content = this.getContent();
+    if (!content || typeof content.querySelectorAll !== 'function') return false;
+    const candidates = Array.prototype.slice.call(
+      content.querySelectorAll('button, a[href], [role="button"]'));
+    const target = matchControlByText(candidates, text);
+    if (!target) return false;
+    const label = controlText(target);
+    target.click();
+    if (label) this.speakResponse(label, lang);
+    return true;
   }
 
   // Answer the current question screen by voice, through the same
@@ -767,16 +1156,23 @@ export class VoiceAssistant {
   speakCurrentScreenPrompt(force) {
     if (!this.continuousCommands) return;
     if (force) this.lastPromptKey = null;
-    const gen = (this.promptSpeakGen += 1);
     const self = this;
     (async function () {
       const started = Date.now();
       while (Date.now() - started < 8000) {
-        if (gen !== self.promptSpeakGen || !self.continuousCommands) return;
-        if (!force && isSpeaking()) {
-          await sleep(250);
-          continue;
-        }
+        // No generation check here on purpose: a loop waiting for
+        // speech to end must survive the next command, or rapid
+        // answers starve the prompts (each call used to kill the
+        // pending loops before they could speak). The loop always
+        // reads the CURRENT screen, the mode flag stops it on "stop",
+        // and lastPromptKey is claimed synchronously, so two loops
+        // can never speak the same prompt twice.
+        if (!self.continuousCommands) return;
+        // The screen is read first, with no wait for speech: a new
+        // screen's prompt is spoken at once (it replaces whatever
+        // was playing, which is the confirmation for the answer that
+        // just moved the user here). Waiting for speech to end first
+        // let fast answers skip questions unread.
         const state = self.guide ? self.guide.readScreenState() : { kind: 'unknown' };
         if (state.kind === 'loading') {
           await sleep(300);
@@ -912,12 +1308,14 @@ export class VoiceAssistant {
       const title = document.createElement('h2');
       title.id = titleId;
       title.className = 'ik-voice-consent-title';
-      title.textContent = t('voiceConsentTitle', lang);
+      // The Amharic wording names its service; other languages get
+      // the generic wording, which names no provider and no language.
+      title.textContent = t(lang === 'am' ? 'voiceConsentTitle' : 'voiceConsentTitleGeneric', lang);
       dialog.appendChild(title);
 
       const body = document.createElement('p');
       body.className = 'ik-voice-consent-body';
-      body.textContent = t('voiceConsentBody', lang);
+      body.textContent = t(lang === 'am' ? 'voiceConsentBody' : 'voiceConsentBodyGeneric', lang);
       dialog.appendChild(body);
 
       const actions = document.createElement('div');

@@ -1,11 +1,14 @@
 import { getLearner, patchLearner, getSupport, saveSupport } from '../api-client.js';
 import { QuestionScreen } from '../core/question-screen.js';
 import { validateName, validateContact, validateIdNumber } from '../core/validation.js';
-import { SUPPORT_NEEDS } from '../vocabulary.js';
+import { SUPPORT_NEEDS, ID_ROUTES } from '../vocabulary.js';
 import { label, t } from '../labels.js';
 import { getLearnerId, clearLearnerId } from '../core/learner-session.js';
-import { h, btn } from '../core/dom.js';
+import { pickLang, languageDisplayName } from '../content-translations.js';
 
+/**
+ * Tasks D1, D2: Profile page rendering and field editing reusing QuestionScreen.
+ */
 export class LearnerProfile {
   constructor(options) {
     this.container = options.container;
@@ -13,6 +16,7 @@ export class LearnerProfile {
     this.language = options.language || 'en';
     this.isSimpleMode = options.isSimpleMode || false;
     this.onProfileChange = options.onProfileChange || null;
+
     this.learner = null;
     this.supportRecord = null;
     this.loading = true;
@@ -24,6 +28,7 @@ export class LearnerProfile {
     this.loading = true;
     this.render();
 
+    // Check if we have a saved real learner ID from backend onboarding
     const savedId = getLearnerId();
     if (savedId && (!this.learnerId || this.learnerId === 'lrn_demo')) {
       this.learnerId = savedId;
@@ -35,7 +40,7 @@ export class LearnerProfile {
       if (err && (err.status === 404 || (err.errors && err.errors._ && err.errors._.includes('404')))) {
         clearLearnerId();
       }
-      this.error = (err.errors && err.errors._) ? err.errors._ : 'Could not load profile.';
+      this.error = err.errors && err.errors._ ? err.errors._ : 'Could not load learner profile.';
       this.loading = false;
       this.render();
       return;
@@ -44,6 +49,7 @@ export class LearnerProfile {
     try {
       this.supportRecord = await getSupport(this.learnerId);
     } catch (err) {
+      // 404 is normal if learner hasn't filled support needs yet
       this.supportRecord = { items: [] };
     }
 
@@ -52,39 +58,43 @@ export class LearnerProfile {
   }
 
   render() {
-    this.container.textContent = '';
+    this.container.innerHTML = '';
 
     if (this.loading) {
-      const loadDiv = h('div', 'ik-loading-indicator', null, [
-        h('div', 'ik-spinner'),
-        h('p', null, 'Loading profile...')
-      ]);
-      loadDiv.setAttribute('role', 'status');
-      this.container.appendChild(loadDiv);
+      this.container.innerHTML = `
+        <div class="ik-loading-indicator" role="status">
+          <div class="ik-spinner"></div>
+          <p>Loading profile...</p>
+        </div>
+      `;
       return;
     }
 
     if (this.error) {
-      const errCard = h('div', 'ik-error-card', null, [
-        h('p', 'ik-error-msg', '⚠️ ' + this.error),
-        btn('ik-btn ik-btn-secondary', 'Retry', () => this.init())
-      ]);
-      errCard.setAttribute('role', 'alert');
-      this.container.appendChild(errCard);
+      this.container.innerHTML = `
+        <div class="ik-error-card" role="alert">
+          <p class="ik-error-msg">${this.error}</p>
+          <button type="button" class="ik-btn ik-btn-secondary ik-retry-profile-btn">Retry</button>
+        </div>
+      `;
+      this.container.querySelector('.ik-retry-profile-btn').addEventListener('click', () => this.init());
       return;
     }
 
     const lang = this.language;
-    const isAm = lang === 'am' || String(lang).startsWith('am');
     const lrn = this.learner || {};
     const supportItems = (this.supportRecord && Array.isArray(this.supportRecord.items)) ? this.supportRecord.items : [];
 
-    const root = h('div', 'ik-profile-page');
+    const root = document.createElement('div');
+    root.className = 'ik-profile-page';
 
+    // Status announcement banner (e.g. after edit)
     if (this.statusMessage) {
-      const banner = h('div', 'ik-alert ik-alert-success', this.statusMessage);
+      const banner = document.createElement('div');
+      banner.className = 'ik-alert ik-alert-success';
       banner.setAttribute('role', 'status');
       banner.setAttribute('aria-live', 'polite');
+      banner.textContent = this.statusMessage;
       root.appendChild(banner);
       setTimeout(() => {
         this.statusMessage = null;
@@ -92,84 +102,214 @@ export class LearnerProfile {
       }, 4000);
     }
 
-    const av = h('div', 'ik-profile-avatar', '👤');
-    av.setAttribute('aria-hidden', 'true');
+    // Profile Header
+    const header = document.createElement('div');
+    header.className = 'ik-profile-header';
+    header.innerHTML = `
+      <div class="ik-profile-avatar" aria-hidden="true">👤</div>
+      <div class="ik-profile-heading-group">
+        <h1 class="ik-profile-title">${lrn.name || 'Learner Profile'}</h1>
+        <p class="ik-profile-id-sub">ID: <code>${lrn.id}</code></p>
+      </div>
+    `;
+    root.appendChild(header);
 
-    const grp = h('div', 'ik-profile-heading-group', null, [
-      h('h1', 'ik-profile-title', lrn.name || 'Learner Profile'),
-      h('p', 'ik-profile-id-sub', 'ID: ' + (lrn.id || ''))
-    ]);
-    root.appendChild(h('div', 'ik-profile-header', null, [av, grp]));
+    // Profile Information Cards Container
+    const grid = document.createElement('div');
+    grid.className = 'ik-profile-sections-grid';
 
-    const grid = h('div', 'ik-profile-sections-grid');
+    // 1. Personal & Contact Info Card
+    const personalCard = document.createElement('div');
+    personalCard.className = 'ik-card ik-profile-card';
+    personalCard.innerHTML = `
+      <div class="ik-card-header">
+        <h2 class="ik-card-title">${pickLang('Personal & Contact Information', 'የግል መረጃ እና አድራሻ', this.language)}</h2>
+      </div>
+      <div class="ik-card-body">
+        <div class="ik-field-row">
+          <div class="ik-field-info">
+            <span class="ik-field-label">${pickLang('What should we call you?', 'ስም', this.language)}</span>
+            <span class="ik-field-val"><strong>${lrn.name || 'Not provided'}</strong></span>
+          </div>
+          <button type="button" class="ik-btn ik-btn-secondary ik-btn-sm ik-edit-name-btn">
+            ${t('edit', lang)}
+          </button>
+        </div>
 
-    const makeCard = (titleText, bodyContent) => h('div', 'ik-card ik-profile-card', null, [
-      h('div', 'ik-card-header', null, [h('h2', 'ik-card-title', titleText)]),
-      h('div', 'ik-card-body', null, [bodyContent])
-    ]);
+        <div class="ik-field-row">
+          <div class="ik-field-info">
+            <span class="ik-field-label">${pickLang('Contact Details', 'ስልክ / ኢሜይል', this.language)}</span>
+            <span class="ik-field-val"><strong>${(lrn.contact && lrn.contact.value) || 'Not provided'}</strong> (${(lrn.contact && lrn.contact.type) || 'phone'})</span>
+          </div>
+          <button type="button" class="ik-btn ik-btn-secondary ik-btn-sm ik-edit-contact-btn">
+            ${t('edit', lang)}
+          </button>
+        </div>
+      </div>
+    `;
 
-    const makeRow = (lbl, val, onEdit) => h('div', 'ik-field-row', null, [
-      h('div', 'ik-field-info', null, [
-        h('span', 'ik-field-label', lbl),
-        h('span', 'ik-field-val', null, [h('strong', null, val)])
-      ]),
-      btn('ik-btn ik-btn-secondary ik-btn-sm', t('edit', lang), onEdit)
-    ]);
+    personalCard.querySelector('.ik-edit-name-btn').addEventListener('click', () => this.editName());
+    personalCard.querySelector('.ik-edit-contact-btn').addEventListener('click', () => this.editContact());
+    grid.appendChild(personalCard);
 
-    // 1. Personal & Contact
-    grid.appendChild(makeCard(isAm ? 'የግል መረጃ እና አድራሻ' : 'Personal & Contact Information', h('div', null, null, [
-      makeRow(isAm ? 'ስም' : 'What should we call you?', lrn.name || 'Not provided', () => this.editName()),
-      makeRow(isAm ? 'ስልክ / ኢሜይል' : 'Contact Details', (lrn.contact && lrn.contact.value) ? `${lrn.contact.value} (${lrn.contact.type || 'phone'})` : 'Not provided', () => this.editContact())
-    ])));
+    // 2. Identification Status Card (D1: "Add my ID later")
+    const idCard = document.createElement('div');
+    idCard.className = 'ik-card ik-profile-card';
 
-    // 2. ID Status Card
-    const idBody = h('div');
-    if (lrn.idRoute === 'referral') {
-      idBody.appendChild(h('div', 'ik-callout ik-callout-warning', null, [
-        h('span', 'ik-badge ik-badge-warning', t('idPendingReview', lang)),
-        h('p', 'ik-callout-text', isAm ? 'የአጋር ድርጅት ማረጋገጫ በመጠባበቅ ላይ ነው።' : 'Referral through partner pending review.')
-      ]));
-    } else if (lrn.idNumber) {
-      idBody.appendChild(makeRow(isAm ? 'የመታወቂያ ቁጥር' : 'Document Number', `${lrn.idRoute || 'kebele'}: ${lrn.idNumber}`, () => this.editIdNumber()));
+    let idStatusHtml = '';
+    let isPendingPartner = lrn.idRoute === 'referral';
+    let hasIdNumber = Boolean(lrn.idNumber);
+
+    if (isPendingPartner) {
+      idStatusHtml = `
+        <div class="ik-callout ik-callout-warning">
+          <span class="ik-badge ik-badge-warning">${t('idPendingReview', lang)}</span>
+          <p class="ik-callout-text">
+            ${pickLang('Referral through community partner pending review. Your access is fully active in the meantime.', 'የአጋር ድርጅት ማረጋገጫ በመጠባበቅ ላይ ነው። ድጋፍ ሰጪ ቡድናችን ከእርስዎ ጋር ይገናኛል።', this.language)}
+          </p>
+        </div>
+      `;
+    } else if (hasIdNumber) {
+      idStatusHtml = `
+        <div class="ik-field-row">
+          <div class="ik-field-info">
+            <span class="ik-field-label">${pickLang('Document Route', 'የሰነድ አይነት', this.language)}: <strong>${lrn.idRoute || 'Document'}</strong></span>
+            <span class="ik-field-val">${pickLang('Document Number', 'የመታወቂያ ቁጥር', this.language)}: <strong>${lrn.idNumber}</strong></span>
+          </div>
+          <button type="button" class="ik-btn ik-btn-secondary ik-btn-sm ik-edit-id-btn">
+            ${t('edit', lang)}
+          </button>
+        </div>
+      `;
     } else {
-      idBody.appendChild(h('div', 'ik-callout ik-callout-info', null, [
-        h('p', 'ik-callout-text', isAm ? 'መታወቂያ አልተጨመረም። ቆይተው ማከል ይችላሉ።' : 'No ID document is on file yet.'),
-        btn('ik-btn ik-btn-primary ik-btn-sm', '+ ' + t('addIdLater', lang), () => this.editIdNumber())
-      ]));
+      idStatusHtml = `
+        <div class="ik-callout ik-callout-info">
+          <p class="ik-callout-text">
+            ${pickLang('No ID document is on file yet. You can add your ID now or at any time.', 'መታወቂያ አልተጨመረም። መታወቂያዎን አሁን ወይም ቆይተው ማከል ይችላሉ።', this.language)}
+          </p>
+          <button type="button" class="ik-btn ik-btn-primary ik-btn-sm ik-add-id-btn">
+            + ${t('addIdLater', lang)}
+          </button>
+        </div>
+      `;
     }
-    grid.appendChild(makeCard(isAm ? 'የመታወቂያ ሁኔታ' : 'Identification & Verification', idBody));
 
-    // 3. Support Needs Card
-    const chipList = h('div', 'ik-support-chips-list');
-    if (supportItems.length > 0) {
-      supportItems.forEach(item => {
-        chipList.appendChild(h('span', 'ik-badge ik-badge-support-item', '♿ ' + label('support', item, lang)));
-      });
-    } else {
-      chipList.appendChild(h('p', 'ik-muted-text', isAm ? 'ምንም አይነት ድጋፍ አልተመዘገበም።' : 'No support accommodations requested yet.'));
-    }
-    grid.appendChild(makeCard(isAm ? 'የሚያስፈልገኝ ድጋፍ' : 'Support You Need', h('div', null, null, [
-      chipList,
-      h('div', 'ik-support-card-footer', null, [
-        btn('ik-btn ik-btn-secondary ik-btn-sm', t('edit', lang) + ' ' + (isAm ? 'ድጋፍ' : 'Support Needs'), () => this.editSupportNeeds())
-      ])
-    ])));
+    idCard.innerHTML = `
+      <div class="ik-card-header">
+        <h2 class="ik-card-title">${pickLang('Identification & Verification', 'የመታወቂያ ሁኔታ', this.language)}</h2>
+      </div>
+      <div class="ik-card-body">
+        ${idStatusHtml}
+      </div>
+    `;
 
-    // 4. Learning Preferences
-    grid.appendChild(makeCard(isAm ? 'የአጠቃቀም ምርጫዎች' : 'Interface & Learning Preferences', h('div', null, null, [
-      makeRow(isAm ? 'ቋንቋ' : 'Language', lrn.language === 'am' ? 'አማርኛ (Amharic)' : 'English', () => this.editLanguage()),
-      makeRow(isAm ? 'የአቀራረብ ሁነታ' : 'Reading / Learning Mode', lrn.mode === 'simple' ? 'Simple with icons' : 'Standard', () => this.editMode())
-    ])));
+    const editIdBtn = idCard.querySelector('.ik-edit-id-btn');
+    if (editIdBtn) editIdBtn.addEventListener('click', () => this.editIdNumber());
+    const addIdBtn = idCard.querySelector('.ik-add-id-btn');
+    if (addIdBtn) addIdBtn.addEventListener('click', () => this.editIdNumber());
+
+    grid.appendChild(idCard);
+
+    // 3. Support Needs Section (D1: Private badge + "No medical proof needed. Stored privately.")
+    const supportCard = document.createElement('div');
+    supportCard.className = 'ik-card ik-profile-card ik-support-needs-card';
+    supportCard.innerHTML = `
+      <div class="ik-card-header ik-support-header">
+        <div class="ik-support-title-row">
+          <h2 class="ik-card-title">${pickLang('Support You Need', 'የሚያስፈልገኝ ድጋፍ', this.language)}</h2>
+          <span class="ik-badge ik-badge-private">🔒 ${t('privateBadge', lang)}</span>
+        </div>
+        <p class="ik-privacy-notice">
+          ${t('privateNotice', lang)}
+          <br>
+          <small class="ik-privacy-sub">
+            ${pickLang('Stored in an isolated support database. Employers cannot view this information.', 'መረጃዎ ለስራ አሰሪዎች አይጋለጥም፤ ለአካታች ድጋፍ አስተባባሪዎች ብቻ ነው የሚታየው።', this.language)}
+          </small>
+        </p>
+      </div>
+      <div class="ik-card-body">
+        <div class="ik-support-chips-list">
+          ${supportItems.length > 0 ? supportItems.map(item => `
+            <span class="ik-badge ik-badge-support-item">
+              ♿ ${label('support', item, lang)}
+            </span>
+          `).join('') : `
+            <p class="ik-muted-text">
+              ${pickLang('No support accommodations requested yet.', 'ምንም አይነት ድጋፍ አልተመዘገበም።', this.language)}
+            </p>
+          `}
+        </div>
+        <div class="ik-support-card-footer">
+          <button type="button" class="ik-btn ik-btn-secondary ik-btn-sm ik-edit-support-btn">
+            ${t('edit', lang)} ${pickLang('Support Needs', 'ድጋፍ', this.language)}
+          </button>
+        </div>
+      </div>
+    `;
+
+    supportCard.querySelector('.ik-edit-support-btn').addEventListener('click', () => this.editSupportNeeds());
+    grid.appendChild(supportCard);
+
+    // 4. Learning Preferences Card (Mode & Language)
+    const prefCard = document.createElement('div');
+    prefCard.className = 'ik-card ik-profile-card';
+    prefCard.innerHTML = `
+      <div class="ik-card-header">
+        <h2 class="ik-card-title">${pickLang('Interface & Learning Preferences', 'የአጠቃቀም ምርጫዎች', this.language)}</h2>
+      </div>
+      <div class="ik-card-body">
+        <div class="ik-field-row">
+          <div class="ik-field-info">
+            <span class="ik-field-label">${pickLang('Language', 'ቋንቋ', this.language)}</span>
+            <span class="ik-field-val"><strong>${languageDisplayName(lrn.language)}</strong></span>
+          </div>
+          <button type="button" class="ik-btn ik-btn-secondary ik-btn-sm ik-edit-lang-btn">
+            ${t('edit', lang)}
+          </button>
+        </div>
+
+        <div class="ik-field-row">
+          <div class="ik-field-info">
+            <span class="ik-field-label">${pickLang('Reading / Learning Mode', 'የአቀራረብ ሁነታ', this.language)}</span>
+            <span class="ik-field-val"><strong>${lrn.mode === 'simple' ? 'Simple with icons' : 'Standard'}</strong></span>
+          </div>
+          <button type="button" class="ik-btn ik-btn-secondary ik-btn-sm ik-edit-mode-btn">
+            ${t('edit', lang)}
+          </button>
+        </div>
+      </div>
+    `;
+
+    prefCard.querySelector('.ik-edit-lang-btn').addEventListener('click', () => this.editLanguage());
+    prefCard.querySelector('.ik-edit-mode-btn').addEventListener('click', () => this.editMode());
+    grid.appendChild(prefCard);
 
     root.appendChild(grid);
     this.container.appendChild(root);
   }
 
+  /* =========================================================================
+     Task D2: Reuse question-screen engine for edits (one field per screen)
+     ========================================================================= */
+
   renderEditScreen(config, onSave) {
-    this.container.textContent = '';
-    const cancelBtn = btn('ik-btn ik-btn-secondary ik-btn-sm ik-back-to-profile', '← ' + t('cancel', this.language), () => this.render());
-    const questionMount = h('div', 'ik-edit-question-mount');
-    this.container.appendChild(h('div', 'ik-edit-field-wrapper', null, [cancelBtn, questionMount]));
+    this.container.innerHTML = '';
+
+    const editWrapper = document.createElement('div');
+    editWrapper.className = 'ik-edit-field-wrapper';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'ik-btn ik-btn-secondary ik-btn-sm ik-back-to-profile';
+    cancelBtn.innerHTML = `← ${t('cancel', this.language)}`;
+    cancelBtn.addEventListener('click', () => this.render());
+    editWrapper.appendChild(cancelBtn);
+
+    const questionMount = document.createElement('div');
+    questionMount.className = 'ik-edit-question-mount';
+    editWrapper.appendChild(questionMount);
+
+    this.container.appendChild(editWrapper);
 
     const qs = new QuestionScreen({
       ...config,
@@ -181,120 +321,149 @@ export class LearnerProfile {
       onNext: async (val) => {
         try {
           await onSave(val);
-          this.statusMessage = this.language === 'am' ? 'መረጃው በተሳካ ሁኔታ ተሻሽሏል!' : 'Field updated successfully!';
+          this.statusMessage = pickLang('Field updated successfully!', 'መረጃው በተሳካ ሁኔታ ተሻሽሏል!', this.language);
           if (this.onProfileChange) this.onProfileChange(this.learner);
           this.init();
         } catch (err) {
-          qs.showError((err.errors && err.errors._) ? err.errors._ : (err.message || 'Could not update.'));
+          qs.showError(err.errors && err.errors._ ? err.errors._ : (err.message || 'Could not update.'));
         }
       },
       onBack: () => this.render()
     });
 
-    questionMount.appendChild(qs.render());
+    const el = qs.render();
+    questionMount.appendChild(el);
     setTimeout(() => qs.focus(), 50);
   }
 
   editName() {
     this.renderEditScreen({
       id: 'name',
-      title: this.language === 'am' ? 'ምን ብለን እንጥራዎት?' : 'What should we call you?',
-      label: this.language === 'am' ? 'የመጀመሪያ ስም ወይም ቅጽል ስም' : 'First name or nickname',
+      title: pickLang('What should we call you?', 'ምን ብለን እንጥራዎት?', this.language),
+      label: pickLang('First name or nickname is completely fine.', 'የመጀመሪያ ስም ወይም ቅጽል ስም ማስገባት ይችላሉ።', this.language),
       value: this.learner.name || '',
       inputType: 'text',
       voiceEnabled: true,
       validation: validateName
     }, async (val) => {
-      this.learner = await patchLearner(this.learnerId, { name: val });
+      const updated = await patchLearner(this.learnerId, { name: val });
+      this.learner = updated;
     });
   }
 
   editContact() {
     const currentVal = (this.learner.contact && this.learner.contact.value) || '';
     const currentType = (this.learner.contact && this.learner.contact.type) || 'phone';
+
     this.renderEditScreen({
       id: 'contact',
-      title: this.language === 'am' ? 'የመገናኛ አድራሻ' : 'Contact Information',
+      title: pickLang('Contact Information', 'የመገናኛ አድራሻ', this.language),
       label: currentType === 'email'
-        ? (this.language === 'am' ? 'የኢሜይል አድራሻዎን ያስገቡ' : 'Email address')
-        : (this.language === 'am' ? 'ባለ 10 አሃዝ ስልክ ቁጥር ያስገቡ' : '10-digit phone number'),
+        ? (pickLang('Please enter your email address', 'የኢሜይል አድራሻዎን ያስገቡ', this.language))
+        : (pickLang('Please enter your 10-digit phone number starting with 09 or 07 (e.g. 0912345678)', 'ባለ 10 አሃዝ የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ፡ 0912345678)', this.language)),
       value: currentVal,
       inputType: currentType === 'email' ? 'email' : 'tel',
       voiceEnabled: true,
       validation: (val) => validateContact(currentType, val, this.language)
     }, async (val) => {
       const cleanVal = currentType === 'phone' ? String(val).replace(/[^0-9]/g, '') : String(val).trim();
-      this.learner = await patchLearner(this.learnerId, {
+      const updated = await patchLearner(this.learnerId, {
         contact: { type: currentType, value: cleanVal }
       });
+      this.learner = updated;
     });
   }
 
   editIdNumber() {
     this.renderEditScreen({
       id: 'idNumber',
-      title: this.language === 'am' ? 'የመታወቂያ ቁጥር ያክሉ' : 'Add ID Document',
-      label: this.language === 'am' ? 'የመታወቂያ ሰነድ ቁጥር' : 'ID document number',
+      title: pickLang('Add or Update ID Document', 'የመታወቂያ ቁጥርዎን ያክሉ', this.language),
+      label: pickLang('Kebele, Passport, or Refugee ID document number', 'የቀበሌ፣ ፓስፖርት ወይም ሌላ መታወቂያ ቁጥር', this.language),
+      helpText: pickLang('You can enter your document number now or update it later.', 'መታወቂያዎን አሁን ማከል ወይም ቆይተው ማስገባት ይችላሉ።', this.language),
       value: this.learner.idNumber || '',
       inputType: 'text',
       voiceEnabled: true,
       validation: (val) => validateIdNumber(this.learner.idRoute, val)
     }, async (val) => {
-      this.learner = await patchLearner(this.learnerId, {
+      const updated = await patchLearner(this.learnerId, {
         idNumber: val ? String(val).trim() : null
       });
+      this.learner = updated;
     });
   }
 
   editSupportNeeds() {
-    const currentItems = (this.supportRecord && Array.isArray(this.supportRecord.items)) ? this.supportRecord.items : [];
+    const currentItems = (this.supportRecord && Array.isArray(this.supportRecord.items))
+      ? this.supportRecord.items
+      : [];
+
+    const options = SUPPORT_NEEDS.map(need => ({
+      value: need,
+      label: label('support', need, this.language),
+      icon: '♿'
+    }));
+
     this.renderEditScreen({
       id: 'supportNeeds',
-      title: this.language === 'am' ? 'የሚያስፈልገኝ ድጋፍ' : 'Support You Need',
-      label: this.language === 'am' ? 'የሚያስፈልጉዎትን ድጋፎች ይምረጡ' : 'Select all accommodations that help you',
+      title: pickLang('Update Support You Need', 'የሚያስፈልገኝ ድጋፍ ማስተካከል', this.language),
+      label: pickLang('Select all accommodations that help you learn and apply', 'የሚያስፈልጉዎትን ድጋፎች ይምረጡ', this.language),
+      helpText: t('privateNotice', this.language),
       value: currentItems,
       inputType: 'checkbox',
-      options: SUPPORT_NEEDS.map(need => ({
-        value: need,
-        label: label('support', need, this.language),
-        icon: '♿'
-      }))
+      options: options
     }, async (val) => {
-      this.supportRecord = await saveSupport(this.learnerId, val);
+      const updated = await saveSupport(this.learnerId, val);
+      this.supportRecord = updated;
     });
   }
 
   editLanguage() {
     this.renderEditScreen({
       id: 'language',
-      title: this.language === 'am' ? 'ቋንቋ ይምረጡ' : 'Select Language',
-      label: 'Language',
+      title: pickLang('Select Language', 'ቋንቋ ይምረጡ', this.language),
+      label: 'Interface Language',
       value: this.learner.language || 'en',
       inputType: 'radio',
       options: [
         { value: 'en', label: 'English', icon: '🌐' },
-        { value: 'am', label: 'አማርኛ (Amharic)', icon: '🇪🇹' }
+        { value: 'am', label: 'አማርኛ (Amharic)', icon: '🇪🇹' },
+        { value: 'so', label: 'Af-Soomaali (Somali)', icon: '🇸🇴' },
+        { value: 'om', label: 'Afaan Oromoo (Oromo)', icon: '🇪🇹' },
+        { value: 'ti', label: 'ትግርኛ (Tigrinya)', icon: '🇪🇹' }
       ]
     }, async (val) => {
       this.language = val;
-      this.learner = await patchLearner(this.learnerId, { language: val });
+      const updated = await patchLearner(this.learnerId, { language: val });
+      this.learner = updated;
     });
   }
 
   editMode() {
     this.renderEditScreen({
       id: 'mode',
-      title: this.language === 'am' ? 'የአቀራረብ ሁነታ' : 'Learning Mode',
+      title: pickLang('Select Reading / Learning Mode', 'የአቀራረብ ሁነታ ይምረጡ', this.language),
       label: 'Learning Mode',
       value: this.learner.mode || 'standard',
       inputType: 'radio',
       options: [
-        { value: 'standard', label: 'Standard', icon: '📄' },
-        { value: 'simple', label: 'Simple with icons', icon: '🖼️' }
+        {
+          value: 'standard',
+          label: 'Standard',
+          icon: '📄',
+          description: pickLang('Standard detailed layout', 'መደበኛ የጽሑፍ አቀራረብ', this.language)
+        },
+        {
+          value: 'simple',
+          label: 'Simple with icons',
+          icon: '🖼️',
+          description: pickLang('Plain language and descriptive visual icons', 'ቀላል አገላለጽ ከምስሎች ጋር', this.language)
+        }
       ]
     }, async (val) => {
       this.isSimpleMode = val === 'simple';
-      this.learner = await patchLearner(this.learnerId, { mode: val });
+      const updated = await patchLearner(this.learnerId, { mode: val });
+      this.learner = updated;
     });
   }
 }
+

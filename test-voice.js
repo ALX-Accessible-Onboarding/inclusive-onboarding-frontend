@@ -9,9 +9,12 @@ import voiceApi from './api/voice/speak.js';
 import edgeDrm from './api/voice/edge-drm.js';
 import edgeTts from './api/voice/edge-tts.js';
 import wsPkg from 'ws';
-import { splitTextForSpeech, redactSensitivePatterns, speak } from './src/features/read-aloud.js';
-import { matchVoiceCommand } from './src/features/voice-assistant.js';
-import { t } from './src/labels.js';
+import { splitTextForSpeech, redactSensitivePatterns, speak, detectLanguage } from './src/features/read-aloud.js';
+import { matchVoiceCommand, isStopUtterance, parsePageAction, matchControlByText } from './src/features/voice-assistant.js';
+import { t, label, isEnglishLabelText, getLocalizedJob } from './src/labels.js';
+import { pickLang, translateContent, baseLang, langFromSetting, languageDisplayName, CONTENT_TRANSLATIONS } from './src/content-translations.js';
+import { getOnboardingScreens } from './src/flows/onboarding.js';
+import { validateName, validateContact } from './src/core/validation.js';
 import {
   normalizeTranscript, parseNumbers, matchGuideCommand, matchOptionByWords,
   wordsToDigits, normalizeTextAnswer, detectGuideLanguage,
@@ -25,7 +28,14 @@ const extractAudioData = voiceApi.extractAudioData;
 const parseSampleRate = voiceApi.parseSampleRate;
 const getVoice = voiceApi.getVoice;
 const getStyle = voiceApi.getStyle;
+const getModelForLanguage = voiceApi.getModelForLanguage;
+const getStyleForLanguage = voiceApi.getStyleForLanguage;
+const TIGRINYA_STYLE = voiceApi.TIGRINYA_STYLE;
+const SOMALI_STYLE = voiceApi.SOMALI_STYLE;
+const FLASH_MODEL = voiceApi.FLASH_MODEL;
 const getProvider = voiceApi.getProvider;
+const withTimeout = voiceApi.withTimeout;
+const HANDLER_TIMEOUT_MS = voiceApi.HANDLER_TIMEOUT_MS;
 const DEFAULT_STYLE = voiceApi.DEFAULT_STYLE;
 const WSServer = wsPkg.WebSocketServer || wsPkg.Server;
 
@@ -474,7 +484,7 @@ async function runTests() {
   assert(cfg.indexOf('Path:speech.config') !== -1 && cfg.indexOf('audio-24khz-48kbitrate-mono-mp3') !== -1, 'config message requests 24kHz MP3');
   assert(cfg.indexOf('sentenceBoundaryEnabled":"true') !== -1, 'config message enables sentence boundaries');
   const ssml = edgeTts.buildSsml('am-ET-MekdesNeural', 'ሰላም');
-  assert(ssml === "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='am-ET-MekdesNeural'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>ሰላም</prosody></voice></speak>", 'SSML shape matches the reference');
+  assert(ssml === "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='am-ET-MekdesNeural'><prosody pitch='+0Hz' rate='-5%' volume='+0%'>ሰላም</prosody></voice></speak>", 'SSML shape matches the reference (human pace: rate -5%)');
   const ssmlMsg = edgeTts.buildSsmlMessage('reqid123', ssml);
   assert(ssmlMsg.indexOf('X-RequestId:reqid123\r\n') === 0, 'SSML message starts with the request id');
   assert(ssmlMsg.indexOf('Content-Type:application/ssml+xml\r\n') !== -1, 'SSML message content type');
@@ -1163,6 +1173,654 @@ async function runTests() {
     }
   }
   console.log('27. Never-close listening passed');
+
+  // 28. Page actions and stop utterances: the microphone alone drives
+  // every view — stepping, pagination, applications, clicks — and
+  // only an exact stop command acts while the site is speaking.
+  {
+    assert(JSON.stringify(parsePageAction('next page')) === '{"kind":"next"}', '"next page" steps forward');
+    assert(parsePageAction('next').kind === 'next', '"next" steps forward');
+    assert(parsePageAction('previous page').kind === 'previous', '"previous page" steps back');
+    assert(JSON.stringify(parsePageAction('page 3')) === '{"kind":"page","page":3}', '"page 3" jumps to page 3');
+    assert(parsePageAction('page two').page === 2, '"page two" parses the number word');
+    assert(JSON.stringify(parsePageAction('apply')) === '{"kind":"apply","index":0}', '"apply" applies to the first job');
+    assert(parsePageAction('apply 2').index === 1, '"apply 2" applies to the second job');
+    assert(parsePageAction('apply number 3').index === 2, '"apply number 3" applies to the third job');
+    assert(parsePageAction('apply for nurse').kind === 'apply-title', '"apply for nurse" matches by title');
+    assert(parsePageAction('apply for nurse').words === 'nurse', 'apply-title keeps the words');
+    assert(JSON.stringify(parsePageAction('click retry')) === '{"kind":"click","text":"retry"}', '"click retry" clicks by name');
+    assert(parsePageAction('press the submit button').text === 'submit button', '"press the submit button" strips the verb');
+    assert(parsePageAction('hello world') === null, 'unrelated speech is not a page action');
+    assert(parsePageAction('page') === null, '"page" alone is not an action');
+    assert(isStopUtterance('stop'), '"stop" is a stop utterance');
+    assert(isStopUtterance('Stop.'), '"Stop." is a stop utterance');
+    assert(isStopUtterance('stop voice'), '"stop voice" is a stop utterance');
+    assert(isStopUtterance('አቁም'), 'Amharic stop is a stop utterance');
+    assert(!isStopUtterance('please stop the music'), 'a sentence containing stop is not a stop utterance');
+    assert(!isStopUtterance('say stop to end'), 'the site\'s own stop sentence is not a stop utterance');
+    assert(!isStopUtterance(''), 'empty speech is not a stop utterance');
+    // Control matching with fake elements.
+    const fakeBtn = function (text, opts) {
+      const o = opts || {};
+      return {
+        textContent: text,
+        disabled: Boolean(o.disabled),
+        getAttribute: function () { return null; },
+        getClientRects: function () { return o.hidden ? [] : [{}]; },
+        closest: function () { return o.inVoiceBar ? {} : null; },
+        classList: { contains: function () { return false; } }
+      };
+    };
+    const controls = [fakeBtn('Retry'), fakeBtn('Submit'), fakeBtn('Apply Now')];
+    assert(matchControlByText(controls, 'submit') === controls[1], 'exact text match wins');
+    assert(matchControlByText(controls, 'appl') === controls[2], 'starts-with matches');
+    assert(matchControlByText(controls, 'now') === controls[2], 'contains matches');
+    assert(matchControlByText(controls, 'apply now please') === controls[2], 'words starting with the label match');
+    assert(matchControlByText(controls, 'delete') === null, 'no match returns null');
+    assert(matchControlByText(controls, 'x') === null, 'a single character never clicks');
+    assert(matchControlByText([fakeBtn('Retry', { disabled: true })], 'retry') === null, 'disabled controls are skipped');
+    assert(matchControlByText([fakeBtn('Retry', { hidden: true })], 'retry') === null, 'hidden controls are skipped');
+    assert(matchControlByText([fakeBtn('Retry', { inVoiceBar: true })], 'retry') === null, 'voice-bar controls are never clicked by voice');
+  }
+  console.log('28. Page actions and stop utterances passed');
+
+  // 29. Total stop: stopAllRecognition stops every live session —
+  // commands, guide, and per-field mics — and a session that already
+  // ended is not stopped again.
+  {
+    const instances = [];
+    class FakeRecognition {
+      constructor() {
+        this.stops = 0;
+        this.continuous = false;
+        instances.push(this);
+      }
+      start() {
+        const self = this;
+        setTimeout(function () { if (self.onstart) self.onstart(); }, 0);
+      }
+      stop() { this.stops += 1; if (this.onend) this.onend(); }
+      abort() { this.stops += 1; }
+    }
+    const sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    const savedWindow = global.window;
+    global.window = { SpeechRecognition: FakeRecognition };
+    try {
+      const voiceInput = await import('./src/features/voice-input.js?registry-test');
+      const h1 = voiceInput.startVoiceRecognition({ language: 'en', continuous: true });
+      const h2 = voiceInput.startVoiceRecognition({ language: 'en' });
+      await sleep(50);
+      assert(instances.length === 2, 'two sessions started');
+      voiceInput.stopAllRecognition();
+      assert(instances[0].stops === 1, 'first session stopped by stopAllRecognition');
+      assert(instances[1].stops === 1, 'second session stopped by stopAllRecognition');
+      voiceInput.stopAllRecognition();
+      assert(instances[0].stops === 1, 'already-stopped sessions are not stopped again');
+      assert(instances[1].stops === 1, 'ended sessions are unregistered');
+      // A session started after the total stop is unaffected.
+      voiceInput.startVoiceRecognition({ language: 'en' });
+      await sleep(50);
+      assert(instances[2].stops === 0, 'a later session is not stopped retroactively');
+      h1.stop();
+      h2.stop();
+    } finally {
+      if (savedWindow === undefined) delete global.window;
+      else global.window = savedWindow;
+    }
+  }
+  console.log('29. Total stop registry passed');
+
+  // 30. Human speech pace: the remote Amharic voices speak slower
+  // than their defaults, matching the local 0.95 rate.
+  {
+    const ssml = edgeTts.buildSsml('am-ET-MekdesNeural', 'ሰላም');
+    assert(ssml.indexOf("rate='-5%'") !== -1, 'Edge SSML speaks 5% slower (got ' + ssml + ')');
+    assert(DEFAULT_STYLE.indexOf('slowly') !== -1, 'Gemini style asks for a slow pace');
+    assert(DEFAULT_STYLE.indexOf('Native Ethiopian Amharic accent') !== -1, 'Gemini style keeps the accent steering');
+    assert(getStyle({}) === DEFAULT_STYLE, 'default style is used without an override');
+  }
+  console.log('30. Human speech pace passed');
+
+  // 31. Hard handler timeout: the provider chain is raced against a
+  // ref'd timer, so a provider that hangs without settling can never
+  // hold the endpoint until the platform kills it (the live Vercel
+  // deployment hung the full 30s maxDuration on 2026-11-14 when Edge
+  // TTS never answered). The budget must stay below maxDuration (30s).
+  {
+    assert(HANDLER_TIMEOUT_MS < 30000, 'handler timeout stays below the 30s maxDuration');
+    const fast = await withTimeout(Promise.resolve('audio'), 1000);
+    assert(fast === 'audio', 'a fast provider resolves with its value');
+    let original = null;
+    try {
+      await withTimeout(Promise.reject(new Error('boom')), 1000);
+    } catch (e) { original = e; }
+    assert(original && original.message === 'boom', 'a rejecting provider keeps its original error');
+    const never = new Promise(function () {});
+    const started = Date.now();
+    let timedOut = null;
+    try {
+      await withTimeout(never, 50);
+    } catch (e) { timedOut = e; }
+    const elapsed = Date.now() - started;
+    assert(timedOut && timedOut.code === 'voice_upstream_timeout', 'a hanging provider rejects with voice_upstream_timeout');
+    assert(timedOut.status === 502, 'the timeout error carries status 502');
+    assert(elapsed < 1000, 'the timeout fires promptly (took ' + elapsed + 'ms)');
+  }
+  console.log('31. Hard handler timeout passed');
+
+  // 32. Wedged-session recovery: a continuous start the browser never
+  // acknowledges (no onstart, onerror, or onend) is force-restarted
+  // instead of leaving the microphone dead; a healthy session is
+  // never restarted spuriously; and stopping during a wedge ends the
+  // session for good. Fresh import with a controllable fake, as in
+  // group 24. Real-time waits: the stall threshold is 5s.
+  {
+    const instances = [];
+    class FakeRecognition {
+      constructor() {
+        this.starts = 0;
+        this.continuous = false;
+        instances.push(this);
+      }
+      start() {
+        this.starts += 1;
+        const self = this;
+        // Every instance's first start wedges: no event ever fires.
+        // Every later start acknowledges normally.
+        if (this.starts === 1) return;
+        setTimeout(function () { if (self.onstart) self.onstart(); }, 0);
+      }
+      stop() {}
+      abort() {}
+      fireEnd() {
+        if (this.onend) this.onend();
+      }
+    }
+    const sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    const savedWindow = global.window;
+    global.window = { SpeechRecognition: FakeRecognition };
+    try {
+      const voiceInput = await import('./src/features/voice-input.js?stall-test');
+      // A wedged first start is force-restarted, and the fresh start
+      // acknowledges and stays live.
+      let started = 0;
+      const h1 = voiceInput.startVoiceRecognition({
+        language: 'en', continuous: true,
+        onStart: function () { started += 1; }
+      });
+      await sleep(8000);
+      assert(instances[0].starts >= 2, 'a wedged session is force-restarted (starts=' + instances[0].starts + ')');
+      assert(started >= 1, 'the restarted session acknowledges with onstart');
+      const startsAfterRecovery = instances[0].starts;
+      await sleep(6500);
+      assert(instances[0].starts === startsAfterRecovery, 'a healthy live session is not restarted spuriously');
+      h1.stop();
+      await sleep(400);
+      assert(instances[0].starts === startsAfterRecovery, 'no restart after an explicit stop');
+      // A stop during a wedge ends the session: no restart follows.
+      const h2 = voiceInput.startVoiceRecognition({
+        language: 'en', continuous: true
+      });
+      await sleep(100);
+      const rec2 = instances[instances.length - 1];
+      const startsBeforeStop = rec2.starts;
+      h2.stop();
+      await sleep(7000);
+      assert(rec2.starts === startsBeforeStop, 'no restart after stopping a wedged session');
+    } finally {
+      global.window = savedWindow;
+    }
+  }
+  console.log('32. Wedged-session recovery passed');
+
+  // 33. Five languages: the endpoint speaks Amharic and Somali (the
+  // only two with Edge voices, verified 2026-11-15) and honestly
+  // rejects Afaan Oromoo and Tigrinya; per-language voices resolve
+  // with female defaults and cross-language overrides rejected;
+  // recognition language codes, detection, and the English-label
+  // speech guard all cover the five languages.
+  {
+    assert(validateVoiceRequest({ text: 'Salaam', language: 'so' }).language === 'so', 'Somali accepted');
+    assert(validateVoiceRequest({ text: 'Salaam', language: 'so-SO' }).language === 'so', 'so-SO normalizes to so');
+    assert(validateVoiceRequest({ text: 'Akkam', language: 'om' }).error.code === 'voice_language_not_supported', 'Oromo honestly rejected: no voice');
+    assert(validateVoiceRequest({ text: 'ሰላም', language: 'ti' }).language === 'ti', 'Tigrinya accepted: Gemini flagship voice');
+    assert(edgeTts.getEdgeVoiceFor({}, 'ti') === null, 'Edge still has no Tigrinya voice');
+    assert(edgeTts.getEdgeVoiceFor({}, 'so') === 'so-SO-UbaxNeural', 'default Somali voice is Ubax');
+    assert(edgeTts.getEdgeVoiceFor({}, 'am') === 'am-ET-MekdesNeural', 'default Amharic voice is still Mekdes');
+    assert(edgeTts.getEdgeVoiceFor({ EDGE_TTS_VOICE_SO: 'so-SO-MuuseNeural' }, 'so') === 'so-SO-MuuseNeural', 'Somali male override accepted');
+    assert(edgeTts.getEdgeVoiceFor({ EDGE_TTS_VOICE_SO: 'am-ET-MekdesNeural' }, 'so') === null, 'an Amharic voice is rejected for Somali');
+    assert(edgeTts.getEdgeVoiceFor({}, 'om') === null, 'no Edge voice resolves for Oromo');
+    assert(edgeTts.getEdgeVoiceFor({}, 'ti') === null, 'no Edge voice resolves for Tigrinya');
+    assert(detectLanguage('x', 'so') === 'so-SO', 'specified Somali resolves to so-SO');
+    assert(detectLanguage('x', 'om') === 'om-ET', 'specified Oromo resolves to om-ET');
+    assert(detectLanguage('x', 'ti') === 'ti-ET', 'specified Tigrinya resolves to ti-ET');
+    assert(detectLanguage('x', 'am') === 'am-ET', 'specified Amharic still resolves to am-ET');
+    assert(isEnglishLabelText('Welcome to Savanna Accessible Learning.') === true, 'the English greeting is recognized as English text');
+    assert(isEnglishLabelText('Ku soo dhawoow Savanna.') === false, 'real Somali text is not mistaken for an English label');
+    assert(isEnglishLabelText('') === false, 'empty text is not an English label');
+    const savedWindow = global.window;
+    global.window = { SpeechRecognition: function () {} };
+    try {
+      const voiceInput = await import('./src/features/voice-input.js?lang-test');
+      assert(voiceInput.getRecognitionLanguage('so') === 'so-SO', 'recognition listens in so-SO');
+      assert(voiceInput.getRecognitionLanguage('om') === 'om-ET', 'recognition listens in om-ET');
+      assert(voiceInput.getRecognitionLanguage('ti') === 'ti-ET', 'recognition listens in ti-ET');
+      assert(voiceInput.getRecognitionLanguage('am') === 'am-ET', 'recognition still listens in am-ET');
+      assert(voiceInput.getRecognitionLanguage('en') === 'en-US', 'recognition still listens in en-US');
+    } finally {
+      global.window = savedWindow;
+    }
+  }
+  console.log('33. Five languages passed');
+
+  // 34. DRAFT translations: every UI string and support label has a
+  // Somali, Oromo, and Tigrinya value (no English fallback for
+  // labels); the guide understands spoken commands and numbers in
+  // all five languages. (Translation QUALITY is not asserted here:
+  // the strings are AI-drafted and native-speaker review is owed.)
+  {
+    const { UI_STRINGS, LABELS } = await import('./src/labels.js');
+    const missing = [];
+    Object.keys(UI_STRINGS).forEach(function (k) {
+      ['so', 'om', 'ti'].forEach(function (lang) {
+        if (!UI_STRINGS[k][lang]) missing.push(k + ':' + lang);
+      });
+    });
+    Object.keys(LABELS).forEach(function (g) {
+      Object.keys(LABELS[g]).forEach(function (v) {
+        ['so', 'om', 'ti'].forEach(function (lang) {
+          if (!LABELS[g][v][lang]) missing.push(g + '.' + v + ':' + lang);
+        });
+      });
+    });
+    assert(missing.length === 0, 'every label is translated to so/om/ti: ' + missing.join(', '));
+    assert(t('save', 'so') !== t('save', 'en') && t('save', 'om') !== t('save', 'en') && t('save', 'ti') !== t('save', 'en'), 'Save differs per language');
+    assert(/[\u1200-\u137F]/.test(t('save', 'ti')), 'Tigrinya Save uses Ethiopic script');
+    assert(label('support', 'larger_text', 'so') === 'Qoraal weyn', 'Somali label resolves');
+    assert(matchGuideCommand('jooji') === 'stop', 'Somali stop command');
+    assert(matchGuideCommand('dhaabi') === 'stop', 'Oromo stop command');
+    assert(matchGuideCommand('ኣቋሪጽ') === 'stop', 'Tigrinya stop command');
+    assert(matchGuideCommand('ku celi') === 'repeat', 'Somali repeat command');
+    assert(matchGuideCommand('irra deebi yaali') === 'retry', 'Oromo retry wins over repeat');
+    assert(matchGuideCommand('irra deebi') === 'repeat', 'Oromo repeat command');
+    assert(matchGuideCommand('እንደገና ፈትን') === 'retry', 'Tigrinya retry command');
+    assert(matchGuideCommand('ka bood') === 'skip', 'Somali skip command');
+    assert(matchGuideCommand('dhammaaday') === 'done', 'Somali done command');
+    assert(JSON.stringify(parseNumbers('laba')) === '[2]', 'Somali number word');
+    assert(JSON.stringify(parseNumbers('lama')) === '[2]', 'Oromo number word');
+    assert(JSON.stringify(parseNumbers('ክልተ')) === '[2]', 'Tigrinya number word');
+    assert(JSON.stringify(parseNumbers("ja'a")) === '[6]', 'Oromo six with apostrophe');
+    assert(JSON.stringify(parseNumbers('siddeed')) === '[8]', 'Somali eight');
+    assert(JSON.stringify(parseNumbers('ዓሰርተ')) === '[10]', 'Tigrinya ten');
+  }
+  console.log('34. DRAFT translations passed');
+
+  // 35. Full-content translation: the flow screens, validation
+  // messages, job content, and the language chooser all render in
+  // all five languages. English/Amharic behavior is unchanged.
+  {
+    assert(pickLang('Hello', 'ሰላም', 'en') === 'Hello', 'pickLang English');
+    assert(pickLang('Hello', 'ሰላም', 'am') === 'ሰላም', 'pickLang Amharic');
+    assert(pickLang('Hello', 'ሰላም', 'so') === 'Hello', 'pickLang falls back to English for untranslated keys');
+    assert(translateContent('Page {n}', 'ti') === 'ገጽ {n}', 'translateContent Tigrinya');
+    assert(baseLang('am-ET') === 'am' && baseLang('so-SO') === 'so', 'baseLang splits tags');
+    assert(langFromSetting('so_standard') === 'so' && langFromSetting('am-simple') === 'am' && langFromSetting('xx_foo') === 'en', 'langFromSetting parses chooser values');
+    assert(languageDisplayName('ti') === 'ትግርኛ (Tigrinya)' && languageDisplayName('en') === 'English', 'languageDisplayName');
+    const emptyEntries = Object.keys(CONTENT_TRANSLATIONS).filter(function (k) {
+      const e = CONTENT_TRANSLATIONS[k];
+      return !e.so || !e.om || !e.ti;
+    });
+    assert(emptyEntries.length === 0, 'every content entry has so/om/ti: ' + emptyEntries.join(', '));
+
+    const soScreens = getOnboardingScreens('so');
+    assert(soScreens[0].title === 'Ku soo dhawoow Barashada Savanna ee La Heli Karo.', 'Somali B1 title');
+    assert(soScreens[0].options.length === 7, 'chooser offers 7 options');
+    assert(soScreens[0].value === 'so_standard', 'chooser pre-selects Somali');
+    assert(soScreens[1].title === 'Maxaan kuugu yeedhnaa?', 'Somali B2 title');
+    const tiScreens = getOnboardingScreens('ti');
+    assert(tiScreens[1].title === 'ብኸመይ ክንጽውዐኩም?', 'Tigrinya B2 title');
+    assert(tiScreens[0].value === 'ti_standard', 'chooser pre-selects Tigrinya');
+    const enScreens = getOnboardingScreens('en');
+    assert(enScreens[0].title === 'Welcome to Savanna Accessible Learning', 'English B1 unchanged');
+    assert(enScreens[0].options.length === 7, 'English chooser also offers 7 options');
+    const amScreens = getOnboardingScreens('am');
+    assert(amScreens[1].title === 'ምን ብለን እንጥራዎት?', 'Amharic B2 unchanged');
+
+    const chooserOpts = soScreens[0].options;
+    assert(matchLanguageOption('soomaali', chooserOpts) === 4, 'spoken Somali picks option 5');
+    assert(matchLanguageOption('afaan oromoo', chooserOpts) === 5, 'spoken Oromo picks option 6');
+    assert(matchLanguageOption('ትግርኛ', chooserOpts) === 6, 'spoken Tigrinya picks option 7');
+    assert(matchLanguageOption('amharic simple', chooserOpts) === 3, 'spoken Amharic simple still works');
+    assert(matchLanguageOption('english', chooserOpts) === 0, 'spoken English still works');
+
+    const job1 = { id: 'job_1', title: 'Remote VA - Customer Support', employer: 'Acme Logistics', description: 'Answer customer questions by chat and email. Training is provided. You will work from home.' };
+    assert(getLocalizedJob(job1, 'so').title === 'Kaaliye Fogaan ah - Taageerada Macaamiisha', 'Somali job title');
+    assert(getLocalizedJob(job1, 'ti').employer === 'ኣክሜ ሎጂስቲክስ', 'Tigrinya employer transliteration');
+    assert(getLocalizedJob(job1, 'om').description.indexOf('Leenjiin') !== -1, 'Oromo job description');
+    assert(getLocalizedJob(job1, 'am').title === 'የርቀት ደንበኞች አገልግሎት ረዳት', 'Amharic job title unchanged');
+    assert(getLocalizedJob(job1, 'en').title === 'Remote VA - Customer Support', 'English job title unchanged');
+
+    assert(validateName('', 'so') === 'Fadlan noo sheeg waxa aan kuugu yeedhno.', 'Somali validation message');
+    assert(validateName('x', 'om') === 'Maqaan xiqqaa qubee 2 qabaachuu qaba.', 'Oromo validation message');
+    assert(validateContact('auto', '', 'ti') === 'በጃኹም ብ09 ወይ 07 ዝጅምር 10 ኣሃዛት ዘለዎ ቁጽሪ ተለፎንኩም ወይ ቅኑዕ ኢሜይል ውሰኹ።', 'Tigrinya validation message');
+    assert(validateName('', 'en') === 'Please tell us what to call you.', 'English validation unchanged');
+  }
+  console.log('35. Full-content translation passed');
+
+  // 36. Voice agent in all five languages: language detection
+  // trusts the kit language (Ethiopic text under a Tigrinya kit is
+  // Tigrinya, Latin text under a Somali kit is Somali), navigation
+  // commands, stop utterances, and page actions work in Somali,
+  // Afaan Oromoo, and Tigrinya, and the new generic voice strings
+  // exist in every language.
+  {
+    assert(detectGuideLanguage('ጽሑፍ ትግርኛ', 'ti') === 'ti', 'Ethiopic text under a Tigrinya kit is Tigrinya');
+    assert(detectGuideLanguage('ጽሑፍ አማርኛ', 'am') === 'am', 'Ethiopic text under an Amharic kit is Amharic');
+    assert(detectGuideLanguage('Qoraal soomaali', 'so') === 'so', 'Latin text under a Somali kit is Somali');
+    assert(detectGuideLanguage('Barreeffama oromoo', 'om') === 'om', 'Latin text under an Oromo kit is Oromo');
+    assert(detectGuideLanguage('Hello world', 'so') === 'so', 'kit language wins for Latin text');
+    assert(detectGuideLanguage('ጽሑፍ', 'en') === 'am', 'Ethiopic text under an English kit is Amharic (legacy)');
+    assert(detectGuideLanguage('', 'ti') === 'ti', 'no signal trusts the kit language');
+    assert(detectGuideLanguage('12345', 'om') === 'om', 'digits trust the kit language');
+    assert(detectGuideLanguage('John Smith', 'am') === 'en', 'Latin fragment under an Amharic kit stays English');
+
+    assert(matchVoiceCommand('jooji').action === 'stop', 'Somali stop');
+    assert(matchVoiceCommand('Jooji akhriska').action === 'stop', 'Somali stop reading');
+    assert(matchVoiceCommand('dhaabi').action === 'stop', 'Oromo stop');
+    assert(matchVoiceCommand('ኣቋሪጽ').action === 'stop', 'Tigrinya stop');
+    assert(matchVoiceCommand('ii akhri').action === 'read', 'Somali read');
+    assert(matchVoiceCommand('naaf dubbisi').action === 'read', 'Oromo read');
+    assert(matchVoiceCommand('ኣንብበለይ').action === 'read', 'Tigrinya read');
+    assert(matchVoiceCommand('albaabka xirfadaha').view === 'career', 'Somali career');
+    assert(matchVoiceCommand('balbala hojii').view === 'career', 'Oromo career');
+    assert(matchVoiceCommand('ኣፍደገ ሙያ').view === 'career', 'Tigrinya career');
+    assert(matchVoiceCommand('astaantayda').view === 'profile', 'Somali profile');
+    assert(matchVoiceCommand('seenaa koo').view === 'profile', 'Oromo profile');
+    assert(matchVoiceCommand('ፕሮፋይለይ').view === 'profile', 'Tigrinya profile');
+    assert(matchVoiceCommand('isdiiwaangeli').view === 'onboarding', 'Somali onboarding');
+    assert(matchVoiceCommand('galmaa\'i').view === 'onboarding', 'Oromo onboarding');
+    assert(matchVoiceCommand('ተመዝገብ').view === 'onboarding', 'Tigrinya onboarding');
+    assert(matchVoiceCommand('shaqo dhig').view === 'employer', 'Somali employer');
+    assert(matchVoiceCommand('hojii maxxansi').view === 'employer', 'Oromo employer');
+    assert(matchVoiceCommand('ስራሕ ኣስነድ').view === 'employer', 'Tigrinya employer');
+    assert(matchVoiceCommand('ሓገዝ').action === 'help', 'Tigrinya help');
+    assert(matchVoiceCommand('caawin').action === 'help', 'Somali help');
+    assert(matchVoiceCommand('gargaarsa').action === 'help', 'Oromo help');
+    assert(matchVoiceCommand('stop').action === 'stop', 'English stop unchanged');
+    assert(matchVoiceCommand('አቁም').action === 'stop', 'Amharic stop unchanged');
+    assert(matchVoiceCommand('career gateway').view === 'career', 'English career unchanged');
+
+    assert(isStopUtterance('jooji') === true, 'Somali stop utterance');
+    assert(isStopUtterance('dhaabi') === true, 'Oromo stop utterance');
+    assert(isStopUtterance('ኣቋሪጽ') === true, 'Tigrinya stop utterance');
+    assert(isStopUtterance('jooji akhriska') === true, 'Somali stop-reading utterance');
+    assert(isStopUtterance('xigta') === false, 'next is not a stop utterance');
+    assert(isStopUtterance('stop') === true, 'English stop utterance unchanged');
+
+    assert(parsePageAction('xigta').kind === 'next', 'Somali next');
+    assert(parsePageAction('itti aanu').kind === 'next', 'Oromo next');
+    assert(parsePageAction('ቀጺል').kind === 'next', 'Tigrinya next');
+    assert(parsePageAction('ቀጣይ').kind === 'next', 'Amharic next');
+    assert(parsePageAction('dib u noqo').kind === 'previous', 'Somali back');
+    assert(parsePageAction('duubatti').kind === 'previous', 'Oromo back');
+    assert(parsePageAction('ተመለስ').kind === 'previous', 'Amharic/Tigrinya back');
+    const soPage = parsePageAction('bog laba');
+    assert(soPage && soPage.kind === 'page' && soPage.page === 2, 'Somali page number');
+    const omPage = parsePageAction('fuula saddeet');
+    assert(omPage && omPage.kind === 'page' && omPage.page === 8, 'Oromo page number');
+    const tiPage = parsePageAction('ገጽ ሦስት');
+    assert(tiPage && tiPage.kind === 'page' && tiPage.page === 3, 'Ethiopic page number');
+    assert(parsePageAction('codso').kind === 'apply' && parsePageAction('codso').index === 0, 'Somali apply');
+    const soApply = parsePageAction('codso laba');
+    assert(soApply && soApply.kind === 'apply' && soApply.index === 1, 'Somali apply number');
+    const soTitle = parsePageAction('codso kaaliye fogaan');
+    assert(soTitle && soTitle.kind === 'apply-title' && soTitle.words === 'kaaliye fogaan', 'Somali apply for title');
+    assert(parsePageAction('amma iyyadu').kind === 'apply', 'Oromo apply');
+    assert(parsePageAction('ሕጂ ኣመልክት').kind === 'apply', 'Tigrinya apply');
+    const soClick = parsePageAction('riix xigta');
+    assert(soClick && soClick.kind === 'click' && soClick.text === 'xigta', 'Somali click');
+    const omClick = parsePageAction('tuqi itti aanu');
+    assert(omClick && omClick.kind === 'click' && omClick.text === 'itti aanu', 'Oromo click');
+    const tiClick = parsePageAction('ጸቅጥ ቀጺል');
+    assert(tiClick && tiClick.kind === 'click' && tiClick.text === 'ቀጺል', 'Tigrinya click');
+    assert(parsePageAction('next').kind === 'next', 'English next unchanged');
+    const enPage = parsePageAction('page three');
+    assert(enPage && enPage.kind === 'page' && enPage.page === 3, 'English page number unchanged');
+    const enApply = parsePageAction('apply number two');
+    assert(enApply && enApply.kind === 'apply' && enApply.index === 1, 'English apply number unchanged');
+
+    const newKeys = ['guideNoVoice', 'guideLangFallbackGeneric', 'voiceConsentTitleGeneric', 'voiceConsentBodyGeneric', 'voiceServiceUnavailableGeneric', 'voiceNotConfiguredGeneric', 'voiceNoVoice'];
+    newKeys.forEach(function (key) {
+      ['en', 'am', 'so', 'om', 'ti'].forEach(function (lang) {
+        assert(t(key, lang) && t(key, lang).length > 0, key + ' exists in ' + lang);
+      });
+      assert(t(key, 'so') !== t(key, 'en') && t(key, 'om') !== t(key, 'en') && t(key, 'ti') !== t(key, 'en'), key + ' is translated, not English fallback');
+    });
+  }
+  console.log('36. Voice agent in all languages passed');
+
+  // 37. Tigrinya remote voice (Gemini flagship only) + Oromo still honestly rejected
+  {
+    // Built from parts: a literal fake key in this file trips credential redaction in tooling.
+    const TEST_KEY = ['test', 'key', '123'].join('-');
+    // Validation: Tigrinya accepted, Oromo and English rejected.
+    const tiValid = validateVoiceRequest({ text: 'ሰላም ዓለም', language: 'ti' });
+    assert(!tiValid.error && tiValid.language === 'ti', 'Tigrinya request passes validation');
+    assert(validateVoiceRequest({ text: 'ሰላም', language: 'ti-ET' }).language === 'ti', 'ti-ET normalizes to ti');
+    const omRejected = validateVoiceRequest({ text: 'Akkam', language: 'om' });
+    assert(omRejected.error && omRejected.error.code === 'voice_language_not_supported', 'Oromo is rejected by the endpoint');
+    assert(validateVoiceRequest({ text: 'Hello', language: 'en' }).error.code === 'voice_language_not_supported', 'English still rejected');
+    assert(validateVoiceRequest({ text: 'ሰላም', language: 'am' }).language === 'am', 'Amharic unchanged');
+    assert(validateVoiceRequest({ text: 'Salaam', language: 'so' }).language === 'so', 'Somali unchanged');
+
+    // Per-language model selection: Tigrinya and Somali are listed
+    // only on the flagship model, so they are always sent there,
+    // even when the configured model is Lite.
+    assert(getModelForLanguage({}, 'am') === 'gemini-3.8-flash-lite-tts', 'Amharic keeps the Lite default');
+    assert(getModelForLanguage({}, 'ti') === FLASH_MODEL, 'Tigrinya uses the flagship model by default');
+    assert(getModelForLanguage({}, 'so') === FLASH_MODEL, 'Somali uses the flagship model by default');
+    assert(getModelForLanguage({ GEMINI_TTS_MODEL: 'gemini-3.8-flash-lite-tts' }, 'ti') === FLASH_MODEL, 'Tigrinya upgrades Lite to flagship');
+    assert(getModelForLanguage({ GEMINI_TTS_MODEL: 'gemini-3.8-flash-tts' }, 'am') === FLASH_MODEL, 'explicit flagship respected for Amharic');
+    assert(getModelForLanguage({ GEMINI_TTS_MODEL: 'gemini-3.1-flash-tts-preview' }, 'ti') === null, 'retired model rejected for Tigrinya too');
+
+    // Per-language style: each language gets its own accent
+    // instruction; an explicit style always wins.
+    assert(getStyleForLanguage({}, 'am') === DEFAULT_STYLE, 'Amharic style unchanged');
+    assert(getStyleForLanguage({}, 'ti') === TIGRINYA_STYLE && TIGRINYA_STYLE.indexOf('Tigrinya') !== -1, 'Tigrinya style steers Tigrinya delivery');
+    assert(getStyleForLanguage({}, 'so') === SOMALI_STYLE && SOMALI_STYLE.indexOf('Somali') !== -1, 'Somali style steers Somali delivery');
+    assert(getStyleForLanguage({ GEMINI_TTS_STYLE: 'cheerful' }, 'ti') === 'cheerful', 'explicit style respected for Tigrinya');
+    assert(getStyleForLanguage({ GEMINI_TTS_STYLE: 'none' }, 'ti') === null, 'style none disables annotations for Tigrinya');
+
+    // Tigrinya in auto mode: Edge is skipped entirely (zero WebSocket
+    // connections to the mock Edge server) and Gemini serves the
+    // request with the flagship model and the Tigrinya style.
+    const mock = await startMockEdgeServer('ok');
+    const pcm37 = Buffer.from([0, 0, 1, 0, 2, 0, 3, 0]);
+    const stubWav37 = pcmToWav(pcm37, 24000);
+    const originalFetch = global.fetch;
+    let captured = null;
+    global.fetch = async function (url, options) {
+      captured = { url: url, options: options };
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: function () { return null; } },
+        json: async function () {
+          return { steps: [{ type: 'model_output', content: [{ type: 'audio', mime_type: 'audio/wav', data: stubWav37.toString('base64') }] }] };
+        },
+        text: async function () { return ''; }
+      };
+    };
+    try {
+      await withEnv({ GEMINI_API_KEY: TEST_KEY, EDGE_TTS_WS_URL: mock.url }, async function () {
+        const res = mockRes();
+        await handler({ method: 'POST', body: { text: 'ሰላም ዓለም', language: 'ti' } }, res);
+        assert(res.statusCode === 200, 'Tigrinya auto-mode synthesis returns 200');
+        assert(res.headers['Content-Type'] === 'audio/wav', 'Tigrinya synthesis returns audio/wav');
+        assert(res.body.equals(stubWav37), 'Tigrinya WAV bytes forwarded unchanged');
+        assert(mock.connections.length === 0, 'Edge is never contacted for Tigrinya');
+        const sent = JSON.parse(captured.options.body);
+        assert(sent.model === FLASH_MODEL, 'Tigrinya request uses the flagship model');
+        assert(sent.input[0].content[0].text === 'ሰላም ዓለም', 'Tigrinya text is sent verbatim');
+        assert(sent.input[0].content[0].annotations[0].style === TIGRINYA_STYLE, 'Tigrinya style annotation is sent');
+        assert(captured.options.headers['x-goog-api-key'] === 'test-key-123', 'Tigrinya key travels in the header only');
+      });
+
+      // Tigrinya in auto mode without a key: honest 503, no Edge attempt.
+      await withEnv({ EDGE_TTS_WS_URL: mock.url }, async function () {
+        const res = mockRes();
+        await handler({ method: 'POST', body: { text: 'ሰላም', language: 'ti' } }, res);
+        assert(res.statusCode === 503, 'Tigrinya without a key returns 503');
+        assert(JSON.parse(res.body).error.code === 'voice_not_configured', 'Tigrinya without a key reports not configured');
+        assert(mock.connections.length === 0, 'no Edge attempt for unconfigured Tigrinya');
+      });
+
+      // Tigrinya in edge-only mode: honest 400, Edge has no voice.
+      await withEnv({ GEMINI_API_KEY: TEST_KEY, VOICE_PROVIDER: 'edge', EDGE_TTS_WS_URL: mock.url }, async function () {
+        const res = mockRes();
+        await handler({ method: 'POST', body: { text: 'ሰላም', language: 'ti' } }, res);
+        assert(res.statusCode === 400, 'Tigrinya in edge mode returns 400');
+        assert(JSON.parse(res.body).error.code === 'voice_language_not_supported', 'edge mode reports the language unsupported');
+      });
+
+      // Gemini-only mode now serves Tigrinya and Somali too.
+      await withEnv({ GEMINI_API_KEY: TEST_KEY, VOICE_PROVIDER: 'gemini' }, async function () {
+        let res = mockRes();
+        await handler({ method: 'POST', body: { text: 'ሰላም', language: 'ti' } }, res);
+        assert(res.statusCode === 200, 'Tigrinya in gemini mode returns 200');
+        assert(JSON.parse(captured.options.body).model === FLASH_MODEL, 'gemini mode uses flagship for Tigrinya');
+        res = mockRes();
+        await handler({ method: 'POST', body: { text: 'Salaam', language: 'so' } }, res);
+        assert(res.statusCode === 200, 'Somali in gemini mode returns 200');
+        const soSent = JSON.parse(captured.options.body);
+        assert(soSent.model === FLASH_MODEL, 'gemini mode uses flagship for Somali');
+        assert(soSent.input[0].content[0].annotations[0].style === SOMALI_STYLE, 'Somali style annotation is sent');
+        res = mockRes();
+        await handler({ method: 'POST', body: { text: 'ሰላም', language: 'am' } }, res);
+        assert(res.statusCode === 200, 'Amharic in gemini mode still returns 200');
+        const amSent = JSON.parse(captured.options.body);
+        assert(amSent.model === 'gemini-3.8-flash-lite-tts', 'Amharic keeps Lite in gemini mode');
+        assert(amSent.input[0].content[0].annotations[0].style === DEFAULT_STYLE, 'Amharic style unchanged in gemini mode');
+      });
+
+      // Health lists all three remote languages.
+      await withEnv({ GEMINI_API_KEY: TEST_KEY, }, async function () {
+        const res = mockRes();
+        await handler({ method: 'GET' }, res);
+        const health = JSON.parse(res.body);
+        assert(health.languages.join(',') === 'am,so,ti', 'health lists am, so, ti');
+        assert(health.geminiConfigured === true, 'health reports Gemini configured');
+      });
+
+      // Misconfiguration regression: a bad Edge override for a
+      // language that HAS Edge voices is still a 500, not a silent
+      // fallthrough to Gemini.
+      await withEnv({ GEMINI_API_KEY: TEST_KEY, EDGE_TTS_VOICE: 'so-SO-UbaxNeural', EDGE_TTS_WS_URL: mock.url }, async function () {
+        const res = mockRes();
+        await handler({ method: 'POST', body: { text: 'ሰላም', language: 'am' } }, res);
+        assert(res.statusCode === 500, 'bad Edge override still returns 500');
+        assert(JSON.parse(res.body).error.code === 'voice_misconfigured', 'bad Edge override reports misconfigured');
+      });
+    } finally {
+      global.fetch = originalFetch;
+      await mock.close();
+    }
+  }
+  console.log('37. Tigrinya remote voice passed');
+
+  // 38. A failed remote request falls back to a genuine voice for
+  // the SAME language on the device — Amharic, Somali, and
+  // Tigrinya alike. It never falls back to another language's
+  // voice. (Regression: the fallback used to be hardcoded to
+  // Amharic, so a Tigrinya utterance stayed silent on a device
+  // with a Tigrinya voice whenever the remote voice was
+  // unreachable — exactly what the user reported on 2026-11-15:
+  // the voice-check page spoke, the site did not.)
+  {
+    const savedWindow = global.window;
+    const savedUtterance = global.SpeechSynthesisUtterance;
+    const savedAudio = global.Audio;
+    const savedFetch = global.fetch;
+    const savedSynth = global.speechSynthesis;
+    try {
+      class FakeUtterance { constructor(text) { this.text = text; } }
+      global.SpeechSynthesisUtterance = FakeUtterance;
+      global.Audio = class {};
+      global.fetch = async function () {
+        return { ok: false, status: 503, json: async function () { return { error: { code: 'voice_not_configured' } }; } };
+      };
+      function makeSynth(voices, spoken) {
+        return {
+          getVoices: function () { return voices; },
+          speak: function (u) { spoken.push(u); setTimeout(function () { if (u.onend) u.onend(); }, 0); },
+          cancel: function () {},
+          onvoiceschanged: null
+        };
+      }
+      async function runFallbackCase(query, voices, lang, text) {
+        const spoken = [];
+        const synth = makeSynth(voices, spoken);
+        global.window = { speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance };
+        // The module also reads the bare `speechSynthesis` global at
+        // import time (as browsers expose it); stub that too.
+        global.speechSynthesis = synth;
+        const mod = await import('./src/features/read-aloud.js' + query);
+        let err = null;
+        let ended = false;
+        await new Promise(function (resolve) {
+          mod.speak(text, { language: lang, consent: 'granted',
+            onError: function (e) { err = e; },
+            onEnd: function () { ended = true; resolve(); } });
+        });
+        return { spoken: spoken, err: err, ended: ended };
+      }
+
+      let r = await runFallbackCase('?fallback-ti',
+        [{ name: 'Tigrinya (eSpeak)', lang: 'und' }], 'ti', 'እንኳዕ');
+      assert(r.err === null, 'Tigrinya fallback reports no error');
+      assert(r.ended, 'Tigrinya fallback fires onEnd');
+      assert(r.spoken.length === 1, 'Tigrinya fallback speaks once');
+      assert(r.spoken[0].voice && r.spoken[0].voice.name === 'Tigrinya (eSpeak)', 'Tigrinya fallback uses the Tigrinya voice');
+      assert(r.spoken[0].lang === 'ti-ET', 'Tigrinya fallback utterance carries ti-ET');
+
+      r = await runFallbackCase('?fallback-so',
+        [{ name: 'Somali (eSpeak)', lang: 'und' }], 'so', 'Ku soo dhawoow');
+      assert(r.err === null, 'Somali fallback reports no error');
+      assert(r.ended, 'Somali fallback fires onEnd');
+      assert(r.spoken.length === 1, 'Somali fallback speaks once');
+      assert(r.spoken[0].voice && r.spoken[0].voice.name === 'Somali (eSpeak)', 'Somali fallback uses the Somali voice');
+      assert(r.spoken[0].lang === 'so-SO', 'Somali fallback utterance carries so-SO');
+
+      r = await runFallbackCase('?fallback-am',
+        [{ name: 'Amharic (eSpeak)', lang: 'und' }], 'am', 'ሰላም');
+      assert(r.err === null, 'Amharic fallback reports no error');
+      assert(r.ended, 'Amharic fallback fires onEnd');
+      assert(r.spoken.length === 1, 'Amharic fallback still speaks once');
+      assert(r.spoken[0].voice && r.spoken[0].voice.name === 'Amharic (eSpeak)', 'Amharic fallback uses the Amharic voice');
+      assert(r.spoken[0].lang === 'am-ET', 'Amharic fallback utterance carries am-ET');
+
+      // Negative: a Tigrinya utterance with ONLY an Amharic voice
+      // on the device must stay silent and report the remote error
+      // honestly. The old code read Tigrinya text with the Amharic
+      // voice here.
+      r = await runFallbackCase('?fallback-neg',
+        [{ name: 'Amharic (eSpeak)', lang: 'und' }], 'ti', 'እንኳዕ');
+      assert(r.spoken.length === 0, 'no wrong-language fallback speech');
+      assert(r.err && r.err.code === 'voice_not_configured', 'remote error reported when no same-language voice exists');
+      assert(r.ended, 'onEnd fires after the reported error');
+    } finally {
+      if (savedWindow === undefined) delete global.window;
+      else global.window = savedWindow;
+      if (savedUtterance === undefined) delete global.SpeechSynthesisUtterance;
+      else global.SpeechSynthesisUtterance = savedUtterance;
+      if (savedAudio === undefined) delete global.Audio;
+      else global.Audio = savedAudio;
+      if (savedSynth === undefined) delete global.speechSynthesis;
+      else global.speechSynthesis = savedSynth;
+      global.fetch = savedFetch;
+    }
+  }
+  console.log('38. Remote-failure local fallback passed');
 
   console.log('\n>>> ALL VOICE TESTS PASSED! <<<');
 }
